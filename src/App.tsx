@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { AppLanguage, LessonDepth, LessonPlan } from './types/lesson';
+import type {
+  AppLanguage,
+  LessonDepth,
+  LessonPlan,
+  QuestionImageAttachment,
+  QuizQuestion,
+  StudyTrack,
+} from './types/lesson';
 import { HomeScreen } from './components/HomeScreen';
 import { LessonPlayer } from './components/LessonPlayer';
 import { HistoryDrawer } from './components/HistoryDrawer';
@@ -34,6 +41,7 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [srsVersion, setSrsVersion] = useState(0);
   const activeLessonRef = useRef<LessonPlan | null>(null);
   activeLessonRef.current = activeLesson;
   const continuingRef = useRef(false);
@@ -60,7 +68,8 @@ export default function App() {
       question: string,
       depth: LessonDepth = 'batafsil',
       useInternet = false,
-      previousContext?: string
+      previousContext?: string,
+      options?: { track?: StudyTrack; image?: QuestionImageAttachment | null }
     ) => {
       if (generatingRef.current) return;
       generatingRef.current = true;
@@ -77,8 +86,11 @@ export default function App() {
             question,
             depth,
             language,
+            track: options?.track || 'general',
             useInternet,
             previousContext,
+            imageBase64: options?.image?.base64,
+            imageMimeType: options?.image?.mimeType,
           }),
         });
 
@@ -136,6 +148,7 @@ export default function App() {
           question: current.question,
           depth: current.depth || 'batafsil',
           language: current.language || language,
+          track: current.track || 'general',
           previousContext: current.summary,
           continuation: true,
           coveredTitles: current.steps.map((s) => s.stepTitle),
@@ -173,6 +186,11 @@ export default function App() {
     }
   }, [language]);
 
+  const handleSaveQuiz = useCallback((lessonId: string, questions: QuizQuestion[]) => {
+    setActiveLesson((prev) => (prev && prev.id === lessonId ? { ...prev, quizQuestions: questions } : prev));
+    setHistory((h) => h.map((item) => (item.id === lessonId ? { ...item, quizQuestions: questions } : item)));
+  }, []);
+
   const handleDeleteLesson = useCallback((id: string) => {
     setHistory((prev) => prev.filter((item) => item.id !== id));
   }, []);
@@ -190,17 +208,21 @@ export default function App() {
           onGoHome={() => {
             setActiveLesson(null);
             setErrorMessage(null);
+            setSrsVersion((v) => v + 1);
           }}
           onOpenHistory={() => setHistoryOpen(true)}
-          onAskFollowUp={(q) =>
+          onAskFollowUp={(q, image) =>
             generateLesson(
               q,
               activeLesson.depth || 'batafsil',
               false,
-              `${activeLesson.title}: ${activeLesson.summary}`
+              `${activeLesson.title}: ${activeLesson.summary}`,
+              { track: activeLesson.track || 'general', image }
             )
           }
           onRequestContinuation={requestContinuation}
+          onQuizLoaded={handleSaveQuiz}
+          onSrsUpdated={() => setSrsVersion((v) => v + 1)}
           isGeneratingFollowUp={isLoading}
           isContinuingLecture={isContinuingLecture}
           errorMessage={errorMessage}
@@ -209,8 +231,8 @@ export default function App() {
         <HomeScreen
           language={language}
           onChangeLanguage={setLanguage}
-          onAskQuestion={(q, depth, useInternet) =>
-            generateLesson(q, depth, useInternet)
+          onAskQuestion={(q, depth, useInternet, options) =>
+            generateLesson(q, depth, useInternet, undefined, options)
           }
           onOpenHistory={() => setHistoryOpen(true)}
           isLoading={isLoading}
@@ -218,6 +240,8 @@ export default function App() {
           onToggleMute={() => setIsMuted((m) => !m)}
           historyCount={history.length}
           errorMessage={errorMessage}
+          srsVersion={srsVersion}
+          onSrsUpdated={() => setSrsVersion((v) => v + 1)}
         />
       )}
 

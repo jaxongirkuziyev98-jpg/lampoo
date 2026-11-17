@@ -20,12 +20,21 @@ import {
   X,
   Sparkles,
   Mic,
+  ListChecks,
+  ImagePlus,
 } from 'lucide-react';
-import type { AppLanguage, LessonPlan } from '../types/lesson';
+import type {
+  AppLanguage,
+  LessonPlan,
+  QuestionImageAttachment,
+  QuizQuestion,
+} from '../types/lesson';
 import { LANGUAGES, UI_COPY } from '../i18n/translations';
 import { WhiteboardCanvas } from './WhiteboardCanvas';
 import { LampoMascot } from './LampoMascot';
+import { MiniTestModal } from './MiniTestModal';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
+import { processQuestionImage } from '../utils/imageUpload';
 import {
   playBase64Audio,
   stopActiveAudio,
@@ -40,8 +49,10 @@ interface LessonPlayerProps {
   onToggleMute: () => void;
   onGoHome: () => void;
   onOpenHistory: () => void;
-  onAskFollowUp: (question: string) => void;
+  onAskFollowUp: (question: string, image?: QuestionImageAttachment | null) => void;
   onRequestContinuation: () => Promise<boolean>;
+  onQuizLoaded: (lessonId: string, questions: QuizQuestion[]) => void;
+  onSrsUpdated: () => void;
   isGeneratingFollowUp: boolean;
   isContinuingLecture: boolean;
   errorMessage: string | null;
@@ -63,6 +74,8 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
   onOpenHistory,
   onAskFollowUp,
   onRequestContinuation,
+  onQuizLoaded,
+  onSrsUpdated,
   isGeneratingFollowUp,
   isContinuingLecture,
   errorMessage,
@@ -79,10 +92,13 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
   );
   const [typedChars, setTypedChars] = useState(0);
   const [followUp, setFollowUp] = useState('');
+  const [followUpImage, setFollowUpImage] = useState<QuestionImageAttachment | null>(null);
+  const [quizOpen, setQuizOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [playbackNonce, setPlaybackNonce] = useState(0);
   const [speechProgress, setSpeechProgress] = useState(0);
+  const followUpImageRef = useRef<HTMLInputElement>(null);
 
   const audioCacheRef = useRef<
     Map<string, { audioBase64: string; mimeType: string }>
@@ -459,11 +475,13 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
 
   const handleFollowUpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!followUp.trim() || isGeneratingFollowUp) return;
+    if ((!followUp.trim() && !followUpImage) || isGeneratingFollowUp) return;
     void unlockAudioContext();
     stopAllAudio();
     setIsPlaying(false);
-    onAskFollowUp(followUp.trim());
+    const imgToSend = followUpImage;
+    setFollowUpImage(null);
+    onAskFollowUp(followUp.trim() || copy.photoDefaultQuestion, imgToSend);
   };
 
   const progressPct =
@@ -513,16 +531,30 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
           </div>
           <span className="hidden md:inline-block text-xs font-medium text-slate-400 shrink-0">
             {lesson.subject}
+            {lesson.track && lesson.track !== 'general' ? ` · ${copy.tracks[lesson.track]}` : ''}
           </span>
         </div>
 
-        {/* Right: Continuous Toggle, Language Switcher & Written Notes Toggle */}
+        {/* Right: Continuous Toggle, Mini-test, Language Switcher & Written Notes Toggle */}
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              stopAllAudio();
+              setIsPlaying(false);
+              setQuizOpen(true);
+            }}
+            className="h-10 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 inline-flex items-center gap-1.5 text-xs font-bold transition-colors whitespace-nowrap shrink-0"
+          >
+            <ListChecks className="w-4 h-4" />
+            <span>{copy.miniTestButton}</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setContinuousMode((v) => !v)}
             aria-pressed={continuousMode}
-            className={`hidden md:inline-flex h-10 px-3 rounded-xl border items-center gap-1.5 text-xs font-semibold transition-colors whitespace-nowrap ${
+            className={`hidden md:inline-flex h-10 px-3 rounded-xl border items-center gap-1.5 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
               continuousMode
                 ? 'bg-sky-500/15 border-sky-500/50 text-sky-300'
                 : 'bg-[#182133] border-slate-700/80 text-slate-400 hover:text-slate-200'
@@ -536,7 +568,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
             <button
               type="button"
               onClick={() => setLangMenuOpen((o) => !o)}
-              className="h-10 px-3 rounded-xl bg-[#182133] border border-slate-700/80 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-200 hover:text-white hover:border-slate-600 transition-colors whitespace-nowrap"
+              className="h-10 px-3 rounded-xl bg-[#182133] border border-slate-700/80 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-200 hover:text-white hover:border-slate-600 transition-colors whitespace-nowrap shrink-0"
             >
               <Languages className="w-4 h-4 text-sky-400" />
               <span>{currentLangObj.shortLabel}</span>
@@ -568,7 +600,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
           <button
             type="button"
             onClick={() => setShowWrittenPanel((v) => !v)}
-            className={`h-10 px-3.5 rounded-xl border inline-flex items-center gap-2 text-xs font-semibold transition-colors whitespace-nowrap ${
+            className={`h-10 px-3.5 rounded-xl border inline-flex items-center gap-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
               showWrittenPanel
                 ? 'bg-sky-500/15 border-sky-500/50 text-sky-300'
                 : 'bg-[#182133] border-slate-700/80 text-slate-300 hover:text-white'
@@ -677,6 +709,23 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                 )}
               </div>
 
+              {/* Prompt mini-test automatically at end of lecture */}
+              {!isPlaying && currentStepIndex === steps.length - 1 && !isContinuingLecture && (
+                <div className="rounded-2xl bg-[#162033] border border-amber-500/45 px-4 py-2.5 flex items-center justify-between gap-3">
+                  <span className="text-xs sm:text-[13px] font-medium text-slate-200">
+                    {copy.miniTestEndPrompt}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setQuizOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold transition-colors whitespace-nowrap shrink-0"
+                  >
+                    <ListChecks className="w-3.5 h-3.5" />
+                    <span>{copy.miniTestButton}</span>
+                  </button>
+                </div>
+              )}
+
               {/* Playback Buttons + Follow-up Input */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
                 <div className="flex items-center justify-between sm:justify-start gap-1.5 shrink-0">
@@ -744,11 +793,45 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                   </button>
                 </div>
 
-                {/* Follow-up Question Input (text or voice) */}
+                {/* Follow-up Question Input (text, photo, or voice) */}
                 <form
                   onSubmit={handleFollowUpSubmit}
                   className="flex-1 flex items-center gap-2 rounded-2xl bg-[#131A29] border border-slate-800 px-3.5 py-1.5 focus-within:border-sky-500/70 transition-colors min-w-0"
                 >
+                  <input
+                    ref={followUpImageRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!file) return;
+                      try {
+                        const processed = await processQuestionImage(file);
+                        setFollowUpImage(processed);
+                      } catch {
+                        // ignore invalid file
+                      }
+                    }}
+                  />
+                  {followUpImage && (
+                    <div className="relative shrink-0">
+                      <img
+                        src={followUpImage.previewUrl}
+                        alt={followUpImage.fileName}
+                        className="w-7 h-7 rounded-lg object-cover border border-slate-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setFollowUpImage(null)}
+                        className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-slate-900 border border-slate-600 text-slate-200 flex items-center justify-center"
+                        aria-label={copy.photoRemoveLabel}
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  )}
                   <input
                     type="text"
                     value={followUp}
@@ -762,10 +845,26 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                         ? `${copy.micListening} (${recordingSeconds}s)`
                         : isTranscribing
                           ? copy.micTranscribing
-                          : copy.followUpPlaceholder
+                          : followUpImage
+                            ? copy.photoPlaceholder
+                            : copy.followUpPlaceholder
                     }
                     className="flex-1 bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none min-w-0"
                   />
+                  <button
+                    type="button"
+                    disabled={isGeneratingFollowUp || isRecording || isTranscribing}
+                    onClick={() => followUpImageRef.current?.click()}
+                    title={copy.photoAttachLabel}
+                    aria-label={copy.photoAttachLabel}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 border ${
+                      followUpImage
+                        ? 'bg-sky-500/20 border-sky-400 text-sky-300'
+                        : 'bg-slate-800/90 hover:bg-slate-700 border-slate-700 text-slate-300 hover:text-sky-300'
+                    } disabled:opacity-50`}
+                  >
+                    <ImagePlus className="w-3.5 h-3.5" />
+                  </button>
                   <button
                     type="button"
                     disabled={isGeneratingFollowUp || isTranscribing}
@@ -788,7 +887,12 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                   </button>
                   <button
                     type="submit"
-                    disabled={!followUp.trim() || isGeneratingFollowUp || isRecording || isTranscribing}
+                    disabled={
+                      (!followUp.trim() && !followUpImage) ||
+                      isGeneratingFollowUp ||
+                      isRecording ||
+                      isTranscribing
+                    }
                     className="w-8 h-8 rounded-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 flex items-center justify-center transition-colors shrink-0"
                     aria-label="Send"
                   >
@@ -972,6 +1076,15 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
           </aside>
         )}
       </div>
+
+      <MiniTestModal
+        isOpen={quizOpen}
+        onClose={() => setQuizOpen(false)}
+        language={language}
+        lesson={lesson}
+        onQuizLoaded={onQuizLoaded}
+        onSrsUpdated={onSrsUpdated}
+      />
     </div>
   );
 };

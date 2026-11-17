@@ -1,16 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ArrowLeft,
+  Atom,
   Calculator,
-  Hand,
+  Compass,
+  Flame,
+  Grid3X3,
   HelpCircle,
-  Hash,
-  RotateCcw,
-  Scissors,
-  ScrollText,
-  Sparkles,
-  Loader2,
+  Layers,
   Lightbulb,
+  Loader2,
+  Music,
+  Rocket,
+  RotateCcw,
+  Sparkles,
+  Sun,
 } from 'lucide-react';
 import { LampoMascot } from './LampoMascot';
 import type { AppLanguage, GameId, LampoMood, LampoQuirk } from '../types/lesson';
@@ -23,7 +27,93 @@ interface LampoGamesProps {
   initialGame?: GameId | null;
 }
 
-type RpsChoice = 'rock' | 'paper' | 'scissors';
+type XoCell = 'X' | 'O' | null;
+
+const XO_WIN_LINES: [number, number, number][] = [
+  [0, 1, 2],
+  [3, 4, 5],
+  [6, 7, 8],
+  [0, 3, 6],
+  [1, 4, 7],
+  [2, 5, 8],
+  [0, 4, 8],
+  [2, 4, 6],
+];
+
+function checkXoWinner(board: XoCell[]): { winner: 'X' | 'O' | 'draw' | null; line: number[] } {
+  for (const [a, b, c] of XO_WIN_LINES) {
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+      return { winner: board[a], line: [a, b, c] };
+    }
+  }
+  if (board.every((cell) => cell !== null)) {
+    return { winner: 'draw', line: [] };
+  }
+  return { winner: null, line: [] };
+}
+
+function pickLampoXoMove(board: XoCell[]): number {
+  const empty = board.map((v, i) => (v === null ? i : -1)).filter((i) => i !== -1);
+  if (empty.length === 0) return -1;
+
+  // 1. Always take an immediate win for O
+  for (const idx of empty) {
+    const copy = [...board];
+    copy[idx] = 'O';
+    if (checkXoWinner(copy).winner === 'O') return idx;
+  }
+
+  // 2. Usually block player X from winning (leaves occasional playful opening)
+  if (Math.random() < 0.82) {
+    for (const idx of empty) {
+      const copy = [...board];
+      copy[idx] = 'X';
+      if (checkXoWinner(copy).winner === 'X') return idx;
+    }
+  }
+
+  // 3. Center or corners
+  if (board[4] === null && Math.random() < 0.75) return 4;
+  const corners = [0, 2, 6, 8].filter((i) => board[i] === null);
+  if (corners.length > 0 && Math.random() < 0.7) {
+    return corners[Math.floor(Math.random() * corners.length)];
+  }
+  return empty[Math.floor(Math.random() * empty.length)];
+}
+
+interface MemoryCard {
+  uid: number;
+  pairId: string;
+  flipped: boolean;
+  matched: boolean;
+}
+
+const MEMORY_SYMBOLS: Array<{
+  pairId: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+}> = [
+  { pairId: 'atom', icon: Atom, color: 'text-sky-400' },
+  { pairId: 'rocket', icon: Rocket, color: 'text-rose-400' },
+  { pairId: 'sun', icon: Sun, color: 'text-amber-400' },
+  { pairId: 'flame', icon: Flame, color: 'text-orange-400' },
+  { pairId: 'music', icon: Music, color: 'text-violet-400' },
+  { pairId: 'compass', icon: Compass, color: 'text-emerald-400' },
+];
+
+function createShuffledDeck(): MemoryCard[] {
+  const deck: MemoryCard[] = [];
+  let uid = 0;
+  for (const sym of MEMORY_SYMBOLS) {
+    deck.push({ uid: uid++, pairId: sym.pairId, flipped: false, matched: false });
+    deck.push({ uid: uid++, pairId: sym.pairId, flipped: false, matched: false });
+  }
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+}
 
 interface MathProblem {
   text: string;
@@ -71,14 +161,17 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   const speakTokenRef = useRef(0);
+  const xoTimerRef = useRef<number | null>(null);
+  const memoryTimerRef = useRef<number | null>(null);
 
-  // RPS state
-  const [rpsScore, setRpsScore] = useState({ you: 0, lampo: 0 });
-  const [rpsLast, setRpsLast] = useState<{
-    you: RpsChoice;
-    lampo: RpsChoice;
-    result: 'win' | 'lose' | 'draw';
-  } | null>(null);
+  // X vs O state
+  const [xoBoard, setXoBoard] = useState<XoCell[]>(() => Array(9).fill(null));
+  const [xoScore, setXoScore] = useState({ you: 0, lampo: 0 });
+  const [xoTurn, setXoTurn] = useState<'X' | 'O'>('X');
+  const [xoWinInfo, setXoWinInfo] = useState<{ winner: 'X' | 'O' | 'draw' | null; line: number[] }>({
+    winner: null,
+    line: [],
+  });
 
   // Math state
   const [mathStreak, setMathStreak] = useState(0);
@@ -86,11 +179,10 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
   const [mathInput, setMathInput] = useState('');
   const [mathFeedback, setMathFeedback] = useState<'correct' | 'wrong' | null>(null);
 
-  // Guess number state
-  const [secretNum, setSecretNum] = useState(() => Math.floor(Math.random() * 50) + 1);
-  const [guessInput, setGuessInput] = useState('');
-  const [guessAttempts, setGuessAttempts] = useState(0);
-  const [guessWon, setGuessWon] = useState(false);
+  // Memory Match state
+  const [memoryCards, setMemoryCards] = useState<MemoryCard[]>(() => createShuffledDeck());
+  const [memoryMoves, setMemoryMoves] = useState(0);
+  const [memoryLocked, setMemoryLocked] = useState(false);
 
   // Riddle state
   const [riddle, setRiddle] = useState<RiddleItem | null>(null);
@@ -109,6 +201,8 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
   useEffect(() => {
     return () => {
       speakTokenRef.current += 1;
+      if (xoTimerRef.current !== null) window.clearTimeout(xoTimerRef.current);
+      if (memoryTimerRef.current !== null) window.clearTimeout(memoryTimerRef.current);
       stopActiveAudio();
     };
   }, []);
@@ -131,7 +225,7 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
         const res = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, language, voice: 'Kore' }),
+          body: JSON.stringify({ text, language, voice: 'Kore', mood: nextMood }),
         });
         if (!res.ok || speakTokenRef.current !== token) return;
         const data = await res.json();
@@ -210,56 +304,94 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
     }
   }, [language, prevRiddles, reactLampo, copy.riddleWelcome]);
 
+  const resetXoRound = useCallback(
+    (resetScore = false) => {
+      if (xoTimerRef.current !== null) {
+        window.clearTimeout(xoTimerRef.current);
+        xoTimerRef.current = null;
+      }
+      setXoBoard(Array(9).fill(null));
+      setXoTurn('X');
+      setXoWinInfo({ winner: null, line: [] });
+      if (resetScore) {
+        setXoScore({ you: 0, lampo: 0 });
+      }
+    },
+    []
+  );
+
+  const resetMemoryGame = useCallback(() => {
+    if (memoryTimerRef.current !== null) {
+      window.clearTimeout(memoryTimerRef.current);
+      memoryTimerRef.current = null;
+    }
+    setMemoryCards(createShuffledDeck());
+    setMemoryMoves(0);
+    setMemoryLocked(false);
+  }, []);
+
   const openGame = (id: GameId) => {
     void unlockAudioContext();
     setActiveGame(id);
-    if (id === 'rps') {
-      setRpsScore({ you: 0, lampo: 0 });
-      setRpsLast(null);
-      void reactLampo(copy.rpsWelcome, 'excited', 'bounce', true);
+    if (id === 'xo') {
+      resetXoRound(true);
+      void reactLampo(copy.xoWelcome, 'excited', 'bounce', true);
     } else if (id === 'math') {
       setMathStreak(0);
       setMathProblem(makeMathProblem(0));
       setMathInput('');
       setMathFeedback(null);
       void reactLampo(copy.mathWelcome, 'curious', 'wiggle', true);
-    } else if (id === 'guess') {
-      setSecretNum(Math.floor(Math.random() * 50) + 1);
-      setGuessInput('');
-      setGuessAttempts(0);
-      setGuessWon(false);
-      void reactLampo(copy.guessWelcome, 'playful', 'bounce', true);
+    } else if (id === 'memory') {
+      resetMemoryGame();
+      void reactLampo(copy.memoryWelcome, 'playful', 'bounce', true);
     } else if (id === 'riddle') {
       void loadNewRiddle();
     }
   };
 
-  // RPS move
-  const handleRpsPick = (choice: RpsChoice) => {
+  // X vs O move handler
+  const handleXoCellClick = (index: number) => {
     void unlockAudioContext();
-    const choices: RpsChoice[] = ['rock', 'paper', 'scissors'];
-    const bot = choices[Math.floor(Math.random() * 3)];
-    let result: 'win' | 'lose' | 'draw' = 'draw';
-    if (
-      (choice === 'rock' && bot === 'scissors') ||
-      (choice === 'paper' && bot === 'rock') ||
-      (choice === 'scissors' && bot === 'paper')
-    ) {
-      result = 'win';
-    } else if (choice !== bot) {
-      result = 'lose';
+    if (xoTurn !== 'X' || xoBoard[index] !== null || xoWinInfo.winner !== null) return;
+
+    const afterPlayer = [...xoBoard];
+    afterPlayer[index] = 'X';
+    const playerCheck = checkXoWinner(afterPlayer);
+    setXoBoard(afterPlayer);
+
+    if (playerCheck.winner === 'X') {
+      setXoWinInfo(playerCheck);
+      setXoScore((s) => ({ ...s, you: s.you + 1 }));
+      void reactLampo(copy.xoWin, 'annoyed', 'shake', true);
+      return;
+    }
+    if (playerCheck.winner === 'draw') {
+      setXoWinInfo(playerCheck);
+      void reactLampo(copy.xoDraw, 'surprised', 'wiggle', true);
+      return;
     }
 
-    setRpsLast({ you: choice, lampo: bot, result });
-    if (result === 'win') {
-      setRpsScore((s) => ({ ...s, you: s.you + 1 }));
-      void reactLampo(copy.rpsWin, 'annoyed', 'shake', true);
-    } else if (result === 'lose') {
-      setRpsScore((s) => ({ ...s, lampo: s.lampo + 1 }));
-      void reactLampo(copy.rpsLose, 'proud', 'bounce', true);
-    } else {
-      void reactLampo(copy.rpsDraw, 'surprised', 'wiggle', true);
-    }
+    setXoTurn('O');
+    xoTimerRef.current = window.setTimeout(() => {
+      xoTimerRef.current = null;
+      const move = pickLampoXoMove(afterPlayer);
+      if (move === -1) return;
+      const afterBot = [...afterPlayer];
+      afterBot[move] = 'O';
+      const botCheck = checkXoWinner(afterBot);
+      setXoBoard(afterBot);
+      setXoTurn('X');
+
+      if (botCheck.winner === 'O') {
+        setXoWinInfo(botCheck);
+        setXoScore((s) => ({ ...s, lampo: s.lampo + 1 }));
+        void reactLampo(copy.xoLose, 'proud', 'jump', true);
+      } else if (botCheck.winner === 'draw') {
+        setXoWinInfo(botCheck);
+        void reactLampo(copy.xoDraw, 'playful', 'wiggle', true);
+      }
+    }, 360);
   };
 
   // Math check
@@ -291,31 +423,46 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
     }
   };
 
-  // Guess number check
-  const handleGuessSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Memory Match handler
+  const handleMemoryCardClick = (uid: number) => {
     void unlockAudioContext();
-    const val = Number(guessInput.trim());
-    if (!Number.isFinite(val) || val < 1 || val > 50 || guessWon) return;
+    if (memoryLocked) return;
 
-    const attempts = guessAttempts + 1;
-    setGuessAttempts(attempts);
-    setGuessInput('');
+    const clicked = memoryCards.find((c) => c.uid === uid);
+    if (!clicked || clicked.flipped || clicked.matched) return;
 
-    if (val === secretNum) {
-      setGuessWon(true);
-      void reactLampo(copy.guessWon, 'proud', 'jump', true);
-    } else if (Math.abs(val - secretNum) <= 4) {
-      void reactLampo(
-        `${copy.guessHot} (${val < secretNum ? '↑' : '↓'})`,
-        'surprised',
-        'wiggle',
-        true
-      );
-    } else if (val < secretNum) {
-      void reactLampo(copy.guessHigher, 'curious', 'bounce', true);
-    } else {
-      void reactLampo(copy.guessLower, 'playful', 'shake', true);
+    const flippedNow = memoryCards.filter((c) => c.flipped && !c.matched);
+    const updated = memoryCards.map((c) => (c.uid === uid ? { ...c, flipped: true } : c));
+    setMemoryCards(updated);
+
+    if (flippedNow.length === 1) {
+      const first = flippedNow[0];
+      setMemoryMoves((m) => m + 1);
+
+      if (first.pairId === clicked.pairId) {
+        const withMatch = updated.map((c) =>
+          c.uid === first.uid || c.uid === clicked.uid ? { ...c, matched: true } : c
+        );
+        setMemoryCards(withMatch);
+        const allMatched = withMatch.every((c) => c.matched);
+        if (allMatched) {
+          void reactLampo(copy.memoryWon, 'proud', 'jump', true);
+        } else {
+          void reactLampo(copy.memoryMatch, 'excited', 'bounce', false);
+        }
+      } else {
+        setMemoryLocked(true);
+        void reactLampo(copy.memoryMiss, 'playful', 'wiggle', false);
+        memoryTimerRef.current = window.setTimeout(() => {
+          memoryTimerRef.current = null;
+          setMemoryCards((prev) =>
+            prev.map((c) =>
+              c.uid === first.uid || c.uid === clicked.uid ? { ...c, flipped: false } : c
+            )
+          );
+          setMemoryLocked(false);
+        }, 620);
+      }
     }
   };
 
@@ -347,14 +494,14 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
   };
 
   const gameCards: Array<{ id: GameId; icon: React.ComponentType<{ className?: string }>; accent: string }> = [
-    { id: 'rps', icon: Hand, accent: 'text-sky-400' },
+    { id: 'xo', icon: Grid3X3, accent: 'text-sky-400' },
     { id: 'math', icon: Calculator, accent: 'text-emerald-400' },
-    { id: 'guess', icon: Hash, accent: 'text-amber-400' },
+    { id: 'memory', icon: Layers, accent: 'text-amber-400' },
     { id: 'riddle', icon: HelpCircle, accent: 'text-violet-400' },
   ];
 
-  const rpsIcon = (c: RpsChoice) =>
-    c === 'rock' ? Hand : c === 'paper' ? ScrollText : Scissors;
+  const matchedPairCount = memoryCards.filter((c) => c.matched).length / 2;
+  const memoryComplete = matchedPairCount === MEMORY_SYMBOLS.length;
 
   return (
     <div className="w-full max-w-3xl mx-auto flex flex-col gap-4">
@@ -386,6 +533,8 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
             type="button"
             onClick={() => {
               speakTokenRef.current += 1;
+              if (xoTimerRef.current !== null) window.clearTimeout(xoTimerRef.current);
+              if (memoryTimerRef.current !== null) window.clearTimeout(memoryTimerRef.current);
               stopActiveAudio();
               setIsSpeaking(false);
               setActiveGame(null);
@@ -424,66 +573,72 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
             </button>
           ))}
         </div>
-      ) : activeGame === 'rps' ? (
-        <div className="rounded-3xl bg-[#131A29] border border-slate-800 p-5 sm:p-6 space-y-5">
+      ) : activeGame === 'xo' ? (
+        <div className="rounded-3xl bg-[#131A29] border border-slate-800 p-5 sm:p-6 space-y-5 text-center">
           {/* Scoreboard */}
           <div className="flex items-center justify-between max-w-xs mx-auto rounded-2xl bg-[#182236] border border-slate-700/80 px-5 py-3">
             <div className="text-center">
-              <div className="text-[11px] font-semibold text-slate-400">{copy.gameYou}</div>
+              <div className="text-[11px] font-semibold text-slate-400">{copy.gameYou} (X)</div>
               <div className="text-2xl font-extrabold text-sky-400 font-mono-math">
-                {rpsScore.you}
+                {xoScore.you}
               </div>
             </div>
             <div className="text-xs font-bold text-slate-500">VS</div>
             <div className="text-center">
-              <div className="text-[11px] font-semibold text-slate-400">{copy.gameLampo}</div>
+              <div className="text-[11px] font-semibold text-slate-400">{copy.gameLampo} (O)</div>
               <div className="text-2xl font-extrabold text-amber-400 font-mono-math">
-                {rpsScore.lampo}
+                {xoScore.lampo}
               </div>
             </div>
           </div>
 
-          {rpsLast && (
-            <div className="flex items-center justify-center gap-6 text-xs text-slate-300">
-              {(() => {
-                const YouIcon = rpsIcon(rpsLast.you);
-                const BotIcon = rpsIcon(rpsLast.lampo);
-                return (
-                  <>
-                    <div className="flex items-center gap-2 rounded-xl bg-[#182236] px-3.5 py-2 border border-sky-500/40">
-                      <YouIcon className="w-4 h-4 text-sky-400" />
-                      <span>{copy.rpsChoices[rpsLast.you]}</span>
-                    </div>
-                    <span className="text-slate-500 font-bold">vs</span>
-                    <div className="flex items-center gap-2 rounded-xl bg-[#182236] px-3.5 py-2 border border-amber-500/40">
-                      <BotIcon className="w-4 h-4 text-amber-400" />
-                      <span>{copy.rpsChoices[rpsLast.lampo]}</span>
-                    </div>
-                  </>
-                );
-              })()}
+          {!xoWinInfo.winner && (
+            <div className="text-xs font-semibold text-slate-400">
+              {xoTurn === 'X' ? copy.xoYourTurn : copy.xoLampoTurn}
             </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="grid grid-cols-3 gap-3 max-w-md mx-auto">
-            {(['rock', 'paper', 'scissors'] as RpsChoice[]).map((c) => {
-              const Icon = rpsIcon(c);
+          {/* 3x3 Board */}
+          <div className="grid grid-cols-3 gap-2.5 max-w-[260px] mx-auto">
+            {xoBoard.map((cell, idx) => {
+              const isWinCell = xoWinInfo.line.includes(idx);
               return (
                 <button
-                  key={c}
+                  key={idx}
                   type="button"
-                  onClick={() => handleRpsPick(c)}
-                  className="rounded-2xl bg-[#192338] hover:bg-[#22304D] border border-slate-700/90 hover:border-sky-500/70 py-4 px-3 flex flex-col items-center gap-2 transition-all active:scale-95"
+                  disabled={cell !== null || xoWinInfo.winner !== null || xoTurn !== 'X'}
+                  onClick={() => handleXoCellClick(idx)}
+                  className={`aspect-square rounded-2xl border text-3xl font-black font-mono-math flex items-center justify-center transition-all ${
+                    isWinCell
+                      ? cell === 'X'
+                        ? 'bg-sky-500/20 border-sky-400 text-sky-300 scale-[1.03]'
+                        : 'bg-amber-500/20 border-amber-400 text-amber-300 scale-[1.03]'
+                      : cell === 'X'
+                        ? 'bg-[#182236] border-sky-500/40 text-sky-400'
+                        : cell === 'O'
+                          ? 'bg-[#182236] border-amber-500/40 text-amber-400'
+                          : 'bg-[#182236] hover:bg-[#212E47] border-slate-700/80 hover:border-sky-500/60 active:scale-95'
+                  }`}
                 >
-                  <Icon className="w-6 h-6 text-sky-300" />
-                  <span className="text-xs font-bold text-slate-100">
-                    {copy.rpsChoices[c]}
-                  </span>
+                  {cell}
                 </button>
               );
             })}
           </div>
+
+          {xoWinInfo.winner && (
+            <button
+              type="button"
+              onClick={() => {
+                resetXoRound(false);
+                void reactLampo(copy.xoWelcome, 'playful', 'bounce', false);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold transition-colors"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>{copy.gameReset}</span>
+            </button>
+          )}
         </div>
       ) : activeGame === 'math' ? (
         <div className="rounded-3xl bg-[#131A29] border border-slate-800 p-5 sm:p-6 space-y-5 text-center">
@@ -532,37 +687,57 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
             </button>
           )}
         </div>
-      ) : activeGame === 'guess' ? (
+      ) : activeGame === 'memory' ? (
         <div className="rounded-3xl bg-[#131A29] border border-slate-800 p-5 sm:p-6 space-y-4 text-center">
-          <div className="text-xs font-semibold text-slate-400">
-            {copy.guessAttempts}: <span className="font-mono-math text-amber-300 font-bold">{guessAttempts}</span>
+          <div className="flex items-center justify-center gap-6 text-xs font-semibold text-slate-400">
+            <span>
+              {copy.memoryMoves}:{' '}
+              <span className="font-mono-math text-amber-300 font-bold">{memoryMoves}</span>
+            </span>
+            <span>
+              {copy.memoryPairs}:{' '}
+              <span className="font-mono-math text-emerald-300 font-bold">
+                {matchedPairCount} / {MEMORY_SYMBOLS.length}
+              </span>
+            </span>
           </div>
 
-          {!guessWon ? (
-            <form
-              onSubmit={handleGuessSubmit}
-              className="flex items-center justify-center gap-2 max-w-xs mx-auto"
-            >
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={guessInput}
-                onChange={(e) => setGuessInput(e.target.value)}
-                placeholder={copy.guessPlaceholder}
-                className="w-36 rounded-xl bg-[#182236] border border-slate-700 px-3.5 py-2.5 text-center text-base font-bold font-mono-math text-slate-100 focus:outline-none focus:border-sky-500"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold transition-colors"
-              >
-                {copy.guessButton}
-              </button>
-            </form>
-          ) : (
+          <div className="grid grid-cols-4 gap-2.5 max-w-sm mx-auto">
+            {memoryCards.map((card) => {
+              const sym = MEMORY_SYMBOLS.find((s) => s.pairId === card.pairId);
+              const Icon = sym?.icon || Atom;
+              const isFaceUp = card.flipped || card.matched;
+              return (
+                <button
+                  key={card.uid}
+                  type="button"
+                  disabled={isFaceUp || memoryLocked}
+                  onClick={() => handleMemoryCardClick(card.uid)}
+                  className={`aspect-square rounded-2xl border flex items-center justify-center transition-all duration-200 ${
+                    card.matched
+                      ? 'bg-emerald-500/15 border-emerald-400/60 scale-[0.98]'
+                      : isFaceUp
+                        ? 'bg-[#212E47] border-sky-400/70'
+                        : 'bg-[#182236] hover:bg-[#202C44] border-slate-700/80 hover:border-amber-400/50 active:scale-95'
+                  }`}
+                >
+                  {isFaceUp ? (
+                    <Icon className={`w-7 h-7 ${sym?.color || 'text-sky-400'}`} />
+                  ) : (
+                    <span className="w-2.5 h-2.5 rounded-full bg-slate-600/80" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {memoryComplete && (
             <button
               type="button"
-              onClick={() => openGame('guess')}
+              onClick={() => {
+                resetMemoryGame();
+                void reactLampo(copy.memoryWelcome, 'playful', 'bounce', false);
+              }}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold transition-colors"
             >
               <RotateCcw className="w-4 h-4" />

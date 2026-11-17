@@ -82,11 +82,12 @@ export interface UiCopy {
   gameYou: string;
   gameLampo: string;
   gameReset: string;
-  rpsChoices: { rock: string; paper: string; scissors: string };
-  rpsWelcome: string;
-  rpsWin: string;
-  rpsLose: string;
-  rpsDraw: string;
+  xoWelcome: string;
+  xoYourTurn: string;
+  xoLampoTurn: string;
+  xoWin: string;
+  xoLose: string;
+  xoDraw: string;
   mathWelcome: string;
   mathStreak: string;
   mathCheck: string;
@@ -94,14 +95,12 @@ export interface UiCopy {
   mathPlaceholder: string;
   mathCorrect: string;
   mathWrong: string;
-  guessWelcome: string;
-  guessPlaceholder: string;
-  guessButton: string;
-  guessHigher: string;
-  guessLower: string;
-  guessHot: string;
-  guessWon: string;
-  guessAttempts: string;
+  memoryWelcome: string;
+  memoryMoves: string;
+  memoryPairs: string;
+  memoryMatch: string;
+  memoryMiss: string;
+  memoryWon: string;
   riddleWelcome: string;
   riddleHintBtn: string;
   riddleNewBtn: string;
@@ -110,6 +109,37 @@ export interface UiCopy {
   riddleCorrect: string;
   riddleWrong: string;
   riddleReveal: string;
+  tracks: Record<'general' | 'dtm' | 'school', string>;
+  trackSubtitles: Record<'general' | 'dtm' | 'school', string>;
+  photoAttachLabel: string;
+  photoRemoveLabel: string;
+  photoPlaceholder: string;
+  photoDefaultQuestion: string;
+  photoError: string;
+  miniTestButton: string;
+  miniTestEndPrompt: string;
+  miniTestTitle: string;
+  miniTestLoading: string;
+  miniTestError: string;
+  miniTestRetryLoad: string;
+  miniTestTestMode: string;
+  miniTestFlashcardMode: string;
+  miniTestRetryLabel: string;
+  miniTestHintBtn: string;
+  miniTestNextBtn: string;
+  miniTestFinishBtn: string;
+  miniTestFlipPrompt: string;
+  miniTestHardBtn: string;
+  miniTestEasyBtn: string;
+  miniTestCorrectReact: string;
+  miniTestWrongReact: string;
+  miniTestSummaryTitle: string;
+  miniTestSummaryNote: string;
+  miniTestRestartBtn: string;
+  miniTestCloseBtn: string;
+  srsReviewTitle: string;
+  srsDueCountSuffix: string;
+  srsReviewBtn: string;
 }
 
 export const UI_COPY: Record<AppLanguage, UiCopy> = {
@@ -191,26 +221,27 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     gamesTitle: "Lampo bilan o'yinlar",
     gamesSubtitle: "O'ynaymiz! Yutsang maqtayman, yutqazsam xafa bo'laman-a!",
     gameTitles: {
-      rps: 'Tosh · Qaychi · Qog‘oz',
+      xo: 'X va O Dueli',
       math: 'Tez Hisob Dueli',
-      guess: 'Sonni Top!',
+      memory: 'Juftini Top!',
       riddle: 'Topishmoq',
     },
     gameDescriptions: {
-      rps: 'Kim zo‘r? Lampo bilan 5 raundlik jang!',
+      xo: "3×3 katakda Lamponi yutishga urinib ko'r!",
       math: 'Tezlikka misollar yechib Lamponi hayron qoldir!',
-      guess: 'Lampo 1 dan 50 gacha son o‘yladi — topib ko‘r!',
+      memory: 'Kartalarni ochib bir xil juftliklarni xotiradan top!',
       riddle: 'Lamponing aqlli topishmoqlariga javob top!',
     },
     gameBack: "Barcha o'yinlar",
     gameYou: 'Siz',
     gameLampo: 'Lampo',
     gameReset: 'Qayta boshlash',
-    rpsChoices: { rock: 'Tosh', paper: 'Qog‘oz', scissors: 'Qaychi' },
-    rpsWelcome: 'Qani boshladik! Tosh, qaychi yoki qog‘ozni tanla — yengishga tayyorman!',
-    rpsWin: 'Voy-bo‘! Meni yutib qo‘yding-ku! Omading chopdi bugun!',
-    rpsLose: 'Ha-ha! Bu safar men yutdim! Yana urinib ko‘r-chi!',
-    rpsDraw: 'O‘xshash fikrladik! Durrang — qayta tashlaymiz!',
+    xoWelcome: "Qani boshladik! Sen X, men O — bo'sh katakni bos!",
+    xoYourTurn: 'Sizning navbatingiz (X)',
+    xoLampoTurn: "Lampo o'ylamoqda...",
+    xoWin: "Voy-bo'! Meni yutib qo'yding-ku! Qoyil senga!",
+    xoLose: 'Ha-ha! Bu safar men yutdim! Yana bir raundmi?',
+    xoDraw: 'Kuchlar teng keldi! Durrang — qayta o‘ynaymizmi?',
     mathWelcome: 'Tayyormisan? Misolni tez va to‘g‘ri yech!',
     mathStreak: 'Ketma-ketlik',
     mathCheck: 'Tekshirish',
@@ -218,14 +249,12 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     mathPlaceholder: 'Javobingiz...',
     mathCorrect: 'Barakalla! Chaqmoqdek tez javob berding!',
     mathWrong: "O‘xshamadi-ku! To‘g‘ri javob:",
-    guessWelcome: 'Men 1 dan 50 gacha bir son o‘yladim. Qani, topib ko‘r-chi!',
-    guessPlaceholder: '1–50 son...',
-    guessButton: 'Sinab ko‘rish',
-    guessHigher: 'Kattaroq son ayt! Yuqoriga chiq!',
-    guessLower: 'Juda ko‘p bo‘lib ketdi! Pastroq tush!',
-    guessHot: 'Voy, juda yaqinlashding! Issiq-issiq!',
-    guessWon: 'Ana xolos! Xuddi o‘sha sonni topding! Qoyil!',
-    guessAttempts: 'Urinishlar',
+    memoryWelcome: 'Kartalarni ochib bir xil juftlarni top — xotirangni sinaymiz!',
+    memoryMoves: 'Urinish',
+    memoryPairs: 'Juftlik',
+    memoryMatch: 'Zo‘r! Xuddi o‘sha juftini topding!',
+    memoryMiss: 'Eee, boshqacha chiqdi! Qayerda turganini eslab qol!',
+    memoryWon: 'Ana xolos! Hamma juftlarni bir zumda topib tashlading!',
     riddleWelcome: 'Qani bosh qotiramiz! Mana senga yangi topishmoq:',
     riddleHintBtn: 'Yordam ber',
     riddleNewBtn: 'Yangi topishmoq',
@@ -234,6 +263,45 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     riddleCorrect: 'Zo‘r! Topishmoqni bir zumda topding!',
     riddleWrong: 'Sal boshqacha o‘ylab ko‘r-chi, hali topilmadi!',
     riddleReveal: "To'g'ri javob:",
+    tracks: {
+      general: 'Umumiy',
+      dtm: 'DTM / Abituriyent',
+      school: 'Maktab dasturi',
+    },
+    trackSubtitles: {
+      general: 'Chizib, yozib va ovoz chiqarib batafsil tushuntiraman.',
+      dtm: 'DTM test tuzoqlari, tezkor usullar va abituriyent mashqlari bilan.',
+      school: 'Maktab darsliklari asosida sodda, tushunarli qadamlar bilan.',
+    },
+    photoAttachLabel: 'Rasm yuklash',
+    photoRemoveLabel: 'Rasmni olib tashlash',
+    photoPlaceholder: 'Rasm bo‘yicha izoh yozing yoki to‘g‘ridan-to‘g‘ri yuboring...',
+    photoDefaultQuestion: 'Rasmdagi masala yoki matnni qadamma-qadam yechib tushuntirib ber',
+    photoError: 'Rasmni yuklab bo‘lmadi. Boshqa JPG yoki PNG rasm tanlang.',
+    miniTestButton: 'Mini-test',
+    miniTestEndPrompt: 'Mavzuni mustahkamlash uchun 4–5 ta savolli mini-test yechasizmi?',
+    miniTestTitle: 'Mini-test va Flashcard',
+    miniTestLoading: 'Lampo mavzu bo‘yicha savollar tuzmoqda...',
+    miniTestError: 'Savollarni yuklab bo‘lmadi. Qayta urinib ko‘ring.',
+    miniTestRetryLoad: 'Qayta urinish',
+    miniTestTestMode: 'Test savollari',
+    miniTestFlashcardMode: 'Flashcard',
+    miniTestRetryLabel: 'Qayta so‘ralmoqda',
+    miniTestHintBtn: 'Yordam',
+    miniTestNextBtn: 'Keyingi savol',
+    miniTestFinishBtn: 'Natijani ko‘rish',
+    miniTestFlipPrompt: 'Javobni ko‘rish uchun kartani bosing',
+    miniTestHardBtn: 'Qiyin · keyinroq so‘ra',
+    miniTestEasyBtn: 'Yodda qoldi',
+    miniTestCorrectReact: 'Barakalla! Xuddi shunday davom et!',
+    miniTestWrongReact: 'Hechqisi yo‘q, tushunib olamiz — buni sal turib yana so‘rayman!',
+    miniTestSummaryTitle: 'Natija tayyor',
+    miniTestSummaryNote: 'Xato qilingan savollar oraliqli takrorlash navbatiga qo‘shildi.',
+    miniTestRestartBtn: 'Qayta ishlash',
+    miniTestCloseBtn: 'Darsga qaytish',
+    srsReviewTitle: 'Takrorlash navbati',
+    srsDueCountSuffix: 'ta savol qayta tekshirishni kutmoqda',
+    srsReviewBtn: 'Takrorlash',
   },
   ru: {
     subtitle: 'Ваш личный учитель',
@@ -313,26 +381,27 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     gamesTitle: 'Игры с Лампо',
     gamesSubtitle: 'Сыграем! Выиграешь — похвалю, проиграю — буду дуться!',
     gameTitles: {
-      rps: 'Камень · Ножницы · Бумага',
+      xo: 'Крестики-нолики',
       math: 'Быстрый счёт',
-      guess: 'Угадай число!',
+      memory: 'Найди пару!',
       riddle: 'Загадки',
     },
     gameDescriptions: {
-      rps: 'Кто кого? Битва с Лампо!',
+      xo: 'Обыграй Лампо на поле 3×3!',
       math: 'Решай примеры на скорость!',
-      guess: 'Лампо загадал число от 1 до 50!',
+      memory: 'Открывай карточки и собирай пары по памяти!',
       riddle: 'Отгадай хитрые загадки Лампо!',
     },
     gameBack: 'Все игры',
     gameYou: 'Вы',
     gameLampo: 'Лампо',
     gameReset: 'Заново',
-    rpsChoices: { rock: 'Камень', paper: 'Бумага', scissors: 'Ножницы' },
-    rpsWelcome: 'Погнали! Выбирай камень, ножницы или бумагу!',
-    rpsWin: 'Ого! Ты меня обыграл! Ну ничего, я ещё отыграюсь!',
-    rpsLose: 'Ха-ха! Победа за мной! Попробуй ещё раз!',
-    rpsDraw: 'Ничья! Мы думаем одинаково!',
+    xoWelcome: 'Погнали! Ты за X, я за O — выбирай клетку!',
+    xoYourTurn: 'Твой ход (X)',
+    xoLampoTurn: 'Лампо думает...',
+    xoWin: 'Ого! Ты меня обыграл! Ну ничего, я ещё отыграюсь!',
+    xoLose: 'Ха-ха! Победа за мной! Сыграем ещё?',
+    xoDraw: 'Ничья! Силы равны!',
     mathWelcome: 'Готов? Решай пример как можно быстрее!',
     mathStreak: 'Серия',
     mathCheck: 'Проверить',
@@ -340,14 +409,12 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     mathPlaceholder: 'Ваш ответ...',
     mathCorrect: 'Молниеносно и точно! Браво!',
     mathWrong: 'Мимо! Правильный ответ:',
-    guessWelcome: 'Я загадал число от 1 до 50. Попробуй угадать!',
-    guessPlaceholder: 'Число 1–50...',
-    guessButton: 'Проверить',
-    guessHigher: 'Бери больше! Выше!',
-    guessLower: 'Перебор! Чуть меньше!',
-    guessHot: 'Ой, совсем горячо! Почти попал!',
-    guessWon: 'Бинго! В точку!',
-    guessAttempts: 'Попытки',
+    memoryWelcome: 'Открывай карточки и найди все пары — проверим твою память!',
+    memoryMoves: 'Ходы',
+    memoryPairs: 'Пары',
+    memoryMatch: 'Класс! Точное попадание!',
+    memoryMiss: 'Не совпали! Запомни, где они лежат!',
+    memoryWon: 'Браво! Все пары собраны!',
     riddleWelcome: 'Вот тебе хитрая загадка:',
     riddleHintBtn: 'Подсказка',
     riddleNewBtn: 'Новая загадка',
@@ -356,6 +423,45 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     riddleCorrect: 'Точно! Вот это смекалка!',
     riddleWrong: 'Пока нет, подумай ещё!',
     riddleReveal: 'Ответ:',
+    tracks: {
+      general: 'Общий',
+      dtm: 'ДТМ / Абитуриент',
+      school: 'Школьная программа',
+    },
+    trackSubtitles: {
+      general: 'Подробно объясню рисуя, письменно и вслух.',
+      dtm: 'Ловушки ДТМ, быстрые приёмы и экзаменационные задачи.',
+      school: 'Понятные шаги строго по школьной программе.',
+    },
+    photoAttachLabel: 'Загрузить фото',
+    photoRemoveLabel: 'Убрать фото',
+    photoPlaceholder: 'Добавьте вопрос к фото или отправьте сразу...',
+    photoDefaultQuestion: 'Реши задачу или объясни материал с этого фото шаг за шагом',
+    photoError: 'Не удалось прочитать изображение. Выберите файл JPG или PNG.',
+    miniTestButton: 'Мини-тест',
+    miniTestEndPrompt: 'Закрепим тему? Пройдите короткий мини-тест из 4–5 вопросов.',
+    miniTestTitle: 'Мини-тест и карточки',
+    miniTestLoading: 'Лампо составляет вопросы по уроку...',
+    miniTestError: 'Не удалось загрузить тест. Попробуйте снова.',
+    miniTestRetryLoad: 'Повторить',
+    miniTestTestMode: 'Тест',
+    miniTestFlashcardMode: 'Карточки',
+    miniTestRetryLabel: 'Повторный вопрос',
+    miniTestHintBtn: 'Подсказка',
+    miniTestNextBtn: 'Следующий вопрос',
+    miniTestFinishBtn: 'Завершить',
+    miniTestFlipPrompt: 'Нажмите на карточку, чтобы увидеть ответ',
+    miniTestHardBtn: 'Сложно · повторить позже',
+    miniTestEasyBtn: 'Запомнил',
+    miniTestCorrectReact: 'Отлично! Так держать!',
+    miniTestWrongReact: 'Ничего страшного — разберёмся, я переспрошу этот вопрос чуть позже!',
+    miniTestSummaryTitle: 'Мини-тест завершён',
+    miniTestSummaryNote: 'Ошибочные вопросы добавлены в интервальное повторение.',
+    miniTestRestartBtn: 'Пройти снова',
+    miniTestCloseBtn: 'К уроку',
+    srsReviewTitle: 'Интервальное повторение',
+    srsDueCountSuffix: 'вопр. ждут повторения',
+    srsReviewBtn: 'Повторить',
   },
   en: {
     subtitle: 'Your personal tutor',
@@ -435,26 +541,27 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     gamesTitle: 'Games with Lampo',
     gamesSubtitle: "Let's play! Expect dramatic reactions if you beat me!",
     gameTitles: {
-      rps: 'Rock · Paper · Scissors',
+      xo: 'Tic-Tac-Toe Duel',
       math: 'Speed Math Duel',
-      guess: 'Guess the Number!',
+      memory: 'Memory Match',
       riddle: 'Riddle Challenge',
     },
     gameDescriptions: {
-      rps: 'Classic showdown against Lampo!',
+      xo: 'Outsmart Lampo on the 3×3 grid!',
       math: 'Race the clock on quick mental math!',
-      guess: 'Lampo picked a secret number from 1 to 50!',
+      memory: 'Flip cards and match all pairs by memory!',
       riddle: 'Solve tricky riddles from Lampo!',
     },
     gameBack: 'All games',
     gameYou: 'You',
     gameLampo: 'Lampo',
     gameReset: 'Play again',
-    rpsChoices: { rock: 'Rock', paper: 'Paper', scissors: 'Scissors' },
-    rpsWelcome: 'Ready! Pick rock, paper, or scissors — bring it on!',
-    rpsWin: 'Whoa! You got me that round! Pure luck!',
-    rpsLose: 'Ha! Point for me! Try beating that!',
-    rpsDraw: 'Great minds think alike! Tie round!',
+    xoWelcome: "Let's go! You are X, I am O — pick any square!",
+    xoYourTurn: 'Your turn (X)',
+    xoLampoTurn: 'Lampo is thinking...',
+    xoWin: 'Whoa! You beat me! Nice strategy!',
+    xoLose: 'Ha-ha! Victory is mine! Rematch?',
+    xoDraw: 'Draw! Perfectly matched minds!',
     mathWelcome: 'Focus up! Solve this as fast as you can!',
     mathStreak: 'Streak',
     mathCheck: 'Check',
@@ -462,14 +569,12 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     mathPlaceholder: 'Your answer...',
     mathCorrect: 'Lightning fast! Nailed it!',
     mathWrong: 'Close, not quite! Answer was:',
-    guessWelcome: 'I picked a secret number between 1 and 50. Guess it!',
-    guessPlaceholder: '1–50...',
-    guessButton: 'Guess',
-    guessHigher: 'Go higher!',
-    guessLower: 'Too high — go lower!',
-    guessHot: 'Ooh, getting super warm!',
-    guessWon: 'Boom! You nailed the exact number!',
-    guessAttempts: 'Attempts',
+    memoryWelcome: 'Flip cards and match every pair — test your memory!',
+    memoryMoves: 'Moves',
+    memoryPairs: 'Pairs',
+    memoryMatch: 'Awesome! Direct match!',
+    memoryMiss: 'Oops, different icons — remember their spots!',
+    memoryWon: 'Boom! You cleared the whole board!',
     riddleWelcome: 'Think carefully! Here is your riddle:',
     riddleHintBtn: 'Give hint',
     riddleNewBtn: 'New riddle',
@@ -478,6 +583,45 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     riddleCorrect: 'Genius! You cracked it!',
     riddleWrong: 'Not quite — try another angle!',
     riddleReveal: 'Answer:',
+    tracks: {
+      general: 'General',
+      dtm: 'DTM / Exam Prep',
+      school: 'School Syllabus',
+    },
+    trackSubtitles: {
+      general: 'I explain deeply by drawing, writing, and speaking aloud.',
+      dtm: 'Exam traps, speed shortcuts, and university entrance practice.',
+      school: 'Clear grade-level explanations aligned to school textbooks.',
+    },
+    photoAttachLabel: 'Upload photo',
+    photoRemoveLabel: 'Remove photo',
+    photoPlaceholder: 'Add a note about the photo or send right away...',
+    photoDefaultQuestion: 'Solve and explain the problem shown in this photo step by step',
+    photoError: 'Could not read that image. Try a JPG or PNG file.',
+    miniTestButton: 'Mini-Quiz',
+    miniTestEndPrompt: 'Ready to lock it in? Try a 4–5 question mini-quiz with Lampo.',
+    miniTestTitle: 'Mini-Quiz & Flashcards',
+    miniTestLoading: 'Lampo is crafting questions from this lesson...',
+    miniTestError: 'Could not load quiz questions. Please retry.',
+    miniTestRetryLoad: 'Retry',
+    miniTestTestMode: 'Quiz',
+    miniTestFlashcardMode: 'Flashcards',
+    miniTestRetryLabel: 'Review question',
+    miniTestHintBtn: 'Hint',
+    miniTestNextBtn: 'Next question',
+    miniTestFinishBtn: 'See results',
+    miniTestFlipPrompt: 'Click card to flip and reveal rule',
+    miniTestHardBtn: 'Hard · ask again soon',
+    miniTestEasyBtn: 'Got it',
+    miniTestCorrectReact: 'Spot on! Keep that momentum going!',
+    miniTestWrongReact: "No worries — let's review it, and I will ask you again shortly!",
+    miniTestSummaryTitle: 'Quiz Complete',
+    miniTestSummaryNote: 'Missed questions are queued for spaced repetition review.',
+    miniTestRestartBtn: 'Try again',
+    miniTestCloseBtn: 'Back to lesson',
+    srsReviewTitle: 'Spaced Repetition',
+    srsDueCountSuffix: 'questions due for review',
+    srsReviewBtn: 'Review now',
   },
   tr: {
     subtitle: 'Kişisel öğretmeniniz',
@@ -557,26 +701,27 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     gamesTitle: 'Lampo ile Oyunlar',
     gamesSubtitle: 'Hadi oynayalım! Beni yenersen fena bozulurum!',
     gameTitles: {
-      rps: 'Taş · Kağıt · Makas',
+      xo: 'X ve O Düellosu',
       math: 'Hızlı Matematik',
-      guess: 'Sayıyı Bul!',
+      memory: 'Çiftini Bul!',
       riddle: 'Bilmece',
     },
     gameDescriptions: {
-      rps: 'Lampo ile kapışma zamanı!',
+      xo: "3×3 tabloda Lampo'yu yenmeye çalış!",
       math: 'Hızlı zihinden işlem yarışması!',
-      guess: 'Lampo 1 ile 50 arasında bir sayı tuttu!',
+      memory: 'Kartları aç ve tüm çiftleri hafızanla bul!',
       riddle: 'Lampo’nun zekice bilmecelerini çöz!',
     },
     gameBack: 'Tüm oyunlar',
     gameYou: 'Sen',
     gameLampo: 'Lampo',
     gameReset: 'Tekrar oyna',
-    rpsChoices: { rock: 'Taş', paper: 'Kağıt', scissors: 'Makas' },
-    rpsWelcome: 'Hazır mısın? Taş, kağıt veya makası seç!',
-    rpsWin: 'Vay canına! Beni yendin bu turda!',
-    rpsLose: 'Haha! Bu tur benim! Tekrar dene bakalım!',
-    rpsDraw: 'Berabere! Aynı şeyi düşündük!',
+    xoWelcome: 'Hazır mısın? Sen X, ben O — bir kare seç!',
+    xoYourTurn: 'Senin sıran (X)',
+    xoLampoTurn: 'Lampo düşünüyor...',
+    xoWin: 'Vay canına! Beni yendin bu turda!',
+    xoLose: 'Haha! Bu tur benim! Tekrar dene bakalım!',
+    xoDraw: 'Berabere! Başa baş mücadele!',
     mathWelcome: 'Hazırsan hızlıca hesapla!',
     mathStreak: 'Seri',
     mathCheck: 'Kontrol et',
@@ -584,14 +729,12 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     mathPlaceholder: 'Cevabınız...',
     mathCorrect: 'Süper hızlı! Tam isabet!',
     mathWrong: 'Olmadı! Doğru cevap:',
-    guessWelcome: '1 ile 50 arasında bir sayı tuttum. Tahmin et!',
-    guessPlaceholder: '1–50...',
-    guessButton: 'Dene',
-    guessHigher: 'Daha büyük bir sayı söyle!',
-    guessLower: 'Çok çıktın, biraz in!',
-    guessHot: 'Çok yaklaştın, sıcacık!',
-    guessWon: 'Harika! Tam sayıyı buldun!',
-    guessAttempts: 'Deneme',
+    memoryWelcome: 'Kartları aç ve aynı çiftleri bul — hafızanı görelim!',
+    memoryMoves: 'Hamle',
+    memoryPairs: 'Çift',
+    memoryMatch: 'Süper! Tam eşleşme!',
+    memoryMiss: 'Farklı çıktı, yerini aklında tut!',
+    memoryWon: 'Harika! Tüm çiftleri buldun!',
     riddleWelcome: 'İşte yeni bilmecen:',
     riddleHintBtn: 'İpucu ver',
     riddleNewBtn: 'Yeni bilmece',
@@ -600,5 +743,44 @@ export const UI_COPY: Record<AppLanguage, UiCopy> = {
     riddleCorrect: 'Müthiş! Hemen bildin!',
     riddleWrong: 'Biraz daha düşün bakalım!',
     riddleReveal: 'Doğru cevap:',
+    tracks: {
+      general: 'Genel',
+      dtm: 'DTM / Sınav Hazırlık',
+      school: 'Okul Müfredatı',
+    },
+    trackSubtitles: {
+      general: 'Çizerek, yazarak ve sesli anlatarak detaylıca öğretirim.',
+      dtm: 'Sınav tuzakları, hızlı çözüm yolları ve çıkmış konu pratikleri.',
+      school: 'Okul müfredatına uygun sade ve adım adım anlatım.',
+    },
+    photoAttachLabel: 'Fotoğraf yükle',
+    photoRemoveLabel: 'Fotoğrafı kaldır',
+    photoPlaceholder: 'Fotoğraf hakkında not ekleyin veya hemen gönderin...',
+    photoDefaultQuestion: 'Bu fotoğraftaki soruyu veya konuyu adım adım tahtada çöz ve anlat',
+    photoError: 'Görsel okunamadı. Lütfen JPG veya PNG seçin.',
+    miniTestButton: 'Mini Test',
+    miniTestEndPrompt: 'Konuyu pekiştirmek için 4–5 soruluk mini teste geçelim mi?',
+    miniTestTitle: 'Mini Test ve Bilgi Kartları',
+    miniTestLoading: 'Lampo bu dersten sorular hazırlıyor...',
+    miniTestError: 'Sorular yüklenemedi. Tekrar deneyin.',
+    miniTestRetryLoad: 'Tekrar dene',
+    miniTestTestMode: 'Test',
+    miniTestFlashcardMode: 'Bilgi Kartı',
+    miniTestRetryLabel: 'Tekrar sorusu',
+    miniTestHintBtn: 'İpucu',
+    miniTestNextBtn: 'Sonraki soru',
+    miniTestFinishBtn: 'Sonucu gör',
+    miniTestFlipPrompt: 'Cevabı görmek için karta dokunun',
+    miniTestHardBtn: 'Zor · sonra tekrar sor',
+    miniTestEasyBtn: 'Öğrendim',
+    miniTestCorrectReact: 'Harika! Aynen böyle devam!',
+    miniTestWrongReact: 'Sorun değil, mantığını görelim — birazdan bunu tekrar soracağım!',
+    miniTestSummaryTitle: 'Test Tamamlandı',
+    miniTestSummaryNote: 'Yanlış yapılan sorular aralıklı tekrar sırasına eklendi.',
+    miniTestRestartBtn: 'Tekrar çöz',
+    miniTestCloseBtn: 'Derse dön',
+    srsReviewTitle: 'Aralıklı Tekrar',
+    srsDueCountSuffix: 'soru tekrar bekliyor',
+    srsReviewBtn: 'Tekrar et',
   },
 };

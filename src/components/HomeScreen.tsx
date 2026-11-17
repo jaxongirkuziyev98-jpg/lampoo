@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   History,
   Triangle,
@@ -16,10 +16,15 @@ import {
   BookOpen,
   MessageCircle,
   Gamepad2,
+  ImagePlus,
+  X,
+  RotateCcw,
+  GraduationCap,
 } from 'lucide-react';
 import { LampoMascot } from './LampoMascot';
 import { LampoCompanion } from './LampoCompanion';
 import { LampoGames } from './LampoGames';
+import { MiniTestModal } from './MiniTestModal';
 import type {
   AppLanguage,
   AppMode,
@@ -27,21 +32,33 @@ import type {
   LampoMood,
   LampoQuirk,
   LessonDepth,
+  QuestionImageAttachment,
+  StudyTrack,
 } from '../types/lesson';
 import { LANGUAGES, UI_COPY } from '../i18n/translations';
+import { DTM_SUBJECTS, SCHOOL_TOPICS } from '../data/dtmTopics';
 import { unlockAudioContext } from '../utils/audioPlayer';
+import { processQuestionImage } from '../utils/imageUpload';
+import { getDueSrsCards } from '../utils/spacedRepetition';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 
 interface HomeScreenProps {
   language: AppLanguage;
   onChangeLanguage: (lang: AppLanguage) => void;
-  onAskQuestion: (question: string, depth: LessonDepth, useInternet: boolean) => void;
+  onAskQuestion: (
+    question: string,
+    depth: LessonDepth,
+    useInternet: boolean,
+    options?: { track?: StudyTrack; image?: QuestionImageAttachment | null }
+  ) => void;
   onOpenHistory: () => void;
   isLoading: boolean;
   isMuted: boolean;
   onToggleMute: () => void;
   historyCount: number;
   errorMessage: string | null;
+  srsVersion: number;
+  onSrsUpdated: () => void;
 }
 
 const SUGGESTION_ICONS = [Triangle, Sprout, Sun, TrendingUp];
@@ -56,10 +73,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onToggleMute,
   historyCount,
   errorMessage,
+  srsVersion,
+  onSrsUpdated,
 }) => {
   const [mode, setMode] = useState<AppMode>('lesson');
   const [selectedGame, setSelectedGame] = useState<GameId | null>(null);
+  const [studyTrack, setStudyTrack] = useState<StudyTrack>('general');
+  const [dtmSubjectId, setDtmSubjectId] = useState<string>(DTM_SUBJECTS[0].id);
   const [question, setQuestion] = useState('');
+  const [attachedImage, setAttachedImage] = useState<QuestionImageAttachment | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [srsModalOpen, setSrsModalOpen] = useState(false);
+
   const [depth, setDepth] = useState<LessonDepth>('batafsil');
   const [useInternet, setUseInternet] = useState(false);
   const [depthMenuOpen, setDepthMenuOpen] = useState(false);
@@ -72,10 +97,26 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const depthRef = useRef<HTMLDivElement>(null);
   const langRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const quipTimerRef = useRef<number | null>(null);
 
   const copy = UI_COPY[language];
   const currentLangObj = LANGUAGES.find((l) => l.code === language) || LANGUAGES[0];
+
+  const dueCards = useMemo(() => {
+    void srsVersion;
+    return getDueSrsCards();
+  }, [srsVersion]);
+
+  const activeDtmSubject =
+    DTM_SUBJECTS.find((s) => s.id === dtmSubjectId) || DTM_SUBJECTS[0];
+
+  const displayedSuggestions =
+    studyTrack === 'dtm'
+      ? activeDtmSubject.topics[language]
+      : studyTrack === 'school'
+        ? SCHOOL_TOPICS[language]
+        : copy.suggestions;
 
   const {
     isRecording,
@@ -88,7 +129,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     language,
     onTranscript: (transcript) => {
       setQuestion(transcript);
-      onAskQuestion(transcript, depth, useInternet);
+      onAskQuestion(transcript, depth, useInternet, {
+        track: studyTrack,
+        image: attachedImage,
+      });
     },
   });
 
@@ -105,11 +149,45 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     return () => document.removeEventListener('mousedown', handleOutside);
   }, []);
 
+  const handleImageFile = async (file?: File | null) => {
+    if (!file) return;
+    setImageError(null);
+    try {
+      const processed = await processQuestionImage(file);
+      setAttachedImage(processed);
+    } catch {
+      setImageError(copy.photoError);
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          void handleImageFile(file);
+          break;
+        }
+      }
+    }
+  };
+
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!question.trim() || isLoading) return;
+    if ((!question.trim() && !attachedImage) || isLoading) return;
     void unlockAudioContext();
-    onAskQuestion(question.trim(), depth, useInternet);
+    onAskQuestion(
+      question.trim() || (attachedImage ? copy.photoDefaultQuestion : ''),
+      depth,
+      useInternet,
+      {
+        track: studyTrack,
+        image: attachedImage,
+      }
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -238,7 +316,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <button
             type="button"
             onClick={() => setMode('lesson')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
               mode === 'lesson'
                 ? 'bg-sky-500 text-slate-950'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
@@ -250,7 +328,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <button
             type="button"
             onClick={() => setMode('chat')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
               mode === 'chat'
                 ? 'bg-sky-500 text-slate-950'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
@@ -265,7 +343,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               setSelectedGame(null);
               setMode('games');
             }}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
               mode === 'games'
                 ? 'bg-sky-500 text-slate-950'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
@@ -296,15 +374,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         ) : (
           <>
-            <div className="flex flex-col items-center text-center mb-8 sm:mb-10">
-              <div className="relative mb-4 animate-lampo-float">
+            <div className="flex flex-col items-center text-center mb-6 sm:mb-7">
+              <div className="relative mb-3.5 animate-lampo-float">
                 {homeQuip && (
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[260px] rounded-2xl bg-[#192338] border border-slate-700 px-3.5 py-2 text-xs font-medium text-slate-100 shadow-xl z-30">
                     {homeQuip}
                   </div>
                 )}
                 <LampoMascot
-                  size={94}
+                  size={88}
                   mood={isLoading ? 'curious' : homeMood}
                   quirk={homeQuirk}
                   quirkKey={homeQuirkKey}
@@ -317,162 +395,301 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-50 text-balance">
                 {isLoading ? copy.heroLoadingTitle : copy.heroTitle}
               </h1>
-              <p className="mt-2.5 text-sm sm:text-base text-slate-400 font-medium">
-                {isLoading ? copy.heroLoadingSubtitle : copy.heroSubtitle}
+              <p className="mt-2 text-sm sm:text-base text-slate-400 font-medium max-w-xl">
+                {isLoading ? copy.heroLoadingSubtitle : copy.trackSubtitles[studyTrack]}
               </p>
             </div>
 
-            {/* Bottom Prompt & Quick Suggestions Area */}
-            <div className="w-full max-w-3xl mx-auto space-y-3.5">
-          {(errorMessage || voiceError) && (
-            <div
-              role="alert"
-              className="rounded-2xl bg-rose-950/70 border border-rose-800/80 px-4 py-3 text-sm text-rose-200 text-center"
-            >
-              {voiceError || errorMessage}
-            </div>
-          )}
-
-          {/* 4 Quick Suggestion Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-            {copy.suggestions.map((text, idx) => {
-              const Icon = SUGGESTION_ICONS[idx];
-              return (
-                <button
-                  key={text}
-                  type="button"
-                  disabled={isLoading}
-                  onClick={() => {
-                    void unlockAudioContext();
-                    onAskQuestion(text, depth, useInternet);
-                  }}
-                  className="group text-left rounded-2xl bg-[#131A29]/90 hover:bg-[#192236] border border-slate-800/90 hover:border-sky-500/60 px-4 py-3.5 transition-all flex flex-col justify-between gap-2.5 disabled:opacity-60 disabled:pointer-events-none"
+            {/* Bottom Prompt, Study Track & Topics Area */}
+            <div className="w-full max-w-3xl mx-auto space-y-3">
+              {(errorMessage || voiceError || imageError) && (
+                <div
+                  role="alert"
+                  className="rounded-2xl bg-rose-950/70 border border-rose-800/80 px-4 py-3 text-sm text-rose-200 text-center"
                 >
-                  <Icon className="w-4 h-4 text-slate-500 group-hover:text-sky-400 transition-colors" />
-                  <span className="text-[13px] font-semibold text-slate-200 group-hover:text-white leading-snug">
-                    {text}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  {imageError || voiceError || errorMessage}
+                </div>
+              )}
 
-          {/* Prompt Input Box */}
-          <form
-            onSubmit={handleSubmit}
-            className="rounded-3xl bg-[#131A29] border border-slate-800 shadow-[0_14px_40px_rgba(0,0,0,0.45)] p-3 sm:p-4 focus-within:border-sky-500/70 transition-all"
-          >
-            <textarea
-              value={question}
-              onChange={(e) => {
-                if (voiceError) clearVoiceError();
-                setQuestion(e.target.value);
-              }}
-              onKeyDown={handleKeyDown}
-              disabled={isLoading || isRecording || isTranscribing}
-              rows={2}
-              placeholder={
-                isRecording
-                  ? `${copy.micListening} (${recordingSeconds}s)`
-                  : isTranscribing
-                    ? copy.micTranscribing
-                    : copy.placeholder
-              }
-              className="w-full resize-none bg-transparent px-2 pt-1 pb-2 text-[15px] text-slate-100 placeholder:text-slate-500 focus:outline-none leading-relaxed"
-            />
-
-            <div className="flex items-center justify-between gap-3 pt-2.5 border-t border-slate-800/90">
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Depth / Duration Selector */}
-                <div className="relative" ref={depthRef}>
+              {/* Spaced Repetition Review Banner (only when missed/due cards exist) */}
+              {dueCards.length > 0 && (
+                <div className="rounded-2xl bg-[#131A29] border border-amber-500/40 px-4 py-2.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 text-xs sm:text-[13px] min-w-0">
+                    <RotateCcw className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span className="font-semibold text-slate-100 truncate">
+                      {copy.srsReviewTitle}
+                    </span>
+                    <span aria-hidden="true" className="text-slate-500">
+                      ·
+                    </span>
+                    <span className="text-slate-300 truncate">
+                      <span className="font-mono-math font-bold text-amber-300">
+                        {dueCards.length}
+                      </span>{' '}
+                      {copy.srsDueCountSuffix}
+                    </span>
+                  </div>
                   <button
                     type="button"
-                    disabled={isLoading}
-                    onClick={() => setDepthMenuOpen((o) => !o)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-xs font-semibold text-slate-200 transition-colors whitespace-nowrap shrink-0"
+                    onClick={() => setSrsModalOpen(true)}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold transition-colors whitespace-nowrap shrink-0"
                   >
-                    <span>{copy.depths[depth]}</span>
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                    {copy.srsReviewBtn}
                   </button>
+                </div>
+              )}
 
-                  {depthMenuOpen && (
-                    <div className="absolute left-0 bottom-full mb-2 w-48 rounded-2xl bg-[#151E30] border border-slate-700/90 shadow-2xl p-1.5 z-30">
-                      {(['qisqa', 'batafsil', 'chuqur'] as LessonDepth[]).map((d) => (
-                        <button
-                          key={d}
-                          type="button"
-                          onClick={() => {
-                            setDepth(d);
-                            setDepthMenuOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
-                            depth === d
-                              ? 'bg-sky-500/15 text-sky-300'
-                              : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-                          }`}
-                        >
-                          {copy.depths[d]}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+              {/* Study Track Selector: General / DTM / School */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex items-center gap-1 rounded-xl bg-[#131A29] border border-slate-800 p-1">
+                  {(['general', 'dtm', 'school'] as StudyTrack[]).map((tr) => (
+                    <button
+                      key={tr}
+                      type="button"
+                      disabled={isLoading}
+                      onClick={() => setStudyTrack(tr)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                        studyTrack === tr
+                          ? 'bg-slate-800 text-sky-300'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {tr === 'dtm' && <GraduationCap className="w-3.5 h-3.5" />}
+                      <span>{copy.tracks[tr]}</span>
+                    </button>
+                  ))}
                 </div>
 
-                {/* Internet Search Grounding Toggle */}
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={() => setUseInternet((v) => !v)}
-                  aria-pressed={useInternet}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 ${
-                    useInternet
-                      ? 'bg-sky-500/15 border-sky-500/50 text-sky-300'
-                      : 'bg-transparent border-slate-700/80 text-slate-400 hover:text-slate-200 hover:border-slate-600'
-                  }`}
-                >
-                  <Globe className="w-3.5 h-3.5" />
-                  <span>{copy.internet}</span>
-                </button>
+                {/* DTM Subject Filter */}
+                {studyTrack === 'dtm' && (
+                  <div className="flex items-center gap-1 overflow-x-auto max-w-full pb-0.5">
+                    {DTM_SUBJECTS.map((subj) => (
+                      <button
+                        key={subj.id}
+                        type="button"
+                        disabled={isLoading}
+                        onClick={() => setDtmSubjectId(subj.id)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                          dtmSubjectId === subj.id
+                            ? 'bg-sky-500/15 text-sky-300 border border-sky-500/40'
+                            : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                        }`}
+                      >
+                        {subj.label[language]}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  disabled={isLoading || isTranscribing}
-                  onClick={toggleRecording}
-                  title={copy.micStartTitle}
-                  aria-label={copy.micStartTitle}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shrink-0 border ${
+              {/* 4 Quick Suggestion / DTM / School Topic Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                {displayedSuggestions.map((text, idx) => {
+                  const Icon =
+                    studyTrack === 'dtm'
+                      ? GraduationCap
+                      : SUGGESTION_ICONS[idx % SUGGESTION_ICONS.length];
+                  return (
+                    <button
+                      key={text}
+                      type="button"
+                      disabled={isLoading}
+                      onClick={() => {
+                        void unlockAudioContext();
+                        onAskQuestion(text, depth, useInternet, { track: studyTrack });
+                      }}
+                      className="group text-left rounded-2xl bg-[#131A29]/90 hover:bg-[#192236] border border-slate-800/90 hover:border-sky-500/60 px-4 py-3.5 transition-all flex flex-col justify-between gap-2.5 disabled:opacity-60 disabled:pointer-events-none"
+                    >
+                      <Icon className="w-4 h-4 text-slate-500 group-hover:text-sky-400 transition-colors" />
+                      <span className="text-[13px] font-semibold text-slate-200 group-hover:text-white leading-snug">
+                        {text}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Prompt Input Box (Text + Photo + Voice) */}
+              <form
+                onSubmit={handleSubmit}
+                className="rounded-3xl bg-[#131A29] border border-slate-800 shadow-[0_14px_40px_rgba(0,0,0,0.45)] p-3 sm:p-4 focus-within:border-sky-500/70 transition-all"
+              >
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    void handleImageFile(file);
+                  }}
+                />
+
+                {attachedImage && (
+                  <div className="mb-2.5 flex items-center justify-between gap-3 rounded-2xl bg-[#182236] border border-slate-700/80 p-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img
+                        src={attachedImage.previewUrl}
+                        alt={attachedImage.fileName}
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-slate-100 truncate">
+                          {attachedImage.fileName}
+                        </div>
+                        <div className="text-[11px] text-sky-400 truncate">
+                          {copy.photoAttachLabel}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAttachedImage(null)}
+                      className="w-8 h-8 rounded-lg hover:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white transition-colors shrink-0"
+                      aria-label={copy.photoRemoveLabel}
+                      title={copy.photoRemoveLabel}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                <textarea
+                  value={question}
+                  onChange={(e) => {
+                    if (voiceError) clearVoiceError();
+                    if (imageError) setImageError(null);
+                    setQuestion(e.target.value);
+                  }}
+                  onPaste={handlePaste}
+                  onKeyDown={handleKeyDown}
+                  disabled={isLoading || isRecording || isTranscribing}
+                  rows={2}
+                  placeholder={
                     isRecording
-                      ? 'bg-sky-500/20 border-sky-400 text-sky-300 shadow-[0_0_16px_rgba(56,189,248,0.35)] animate-pulse'
+                      ? `${copy.micListening} (${recordingSeconds}s)`
                       : isTranscribing
-                        ? 'bg-slate-800 border-slate-700 text-sky-400'
-                        : 'bg-slate-800/90 hover:bg-slate-700/90 border-slate-700 text-slate-300 hover:text-sky-300'
-                  } disabled:opacity-50`}
-                >
-                  {isTranscribing ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Mic className="w-4 h-4" />
-                  )}
-                </button>
+                        ? copy.micTranscribing
+                        : attachedImage
+                          ? copy.photoPlaceholder
+                          : copy.placeholder
+                  }
+                  className="w-full resize-none bg-transparent px-2 pt-1 pb-2 text-[15px] text-slate-100 placeholder:text-slate-500 focus:outline-none leading-relaxed"
+                />
 
-                <button
-                  type="submit"
-                  disabled={!question.trim() || isLoading || isRecording || isTranscribing}
-                  className="w-10 h-10 rounded-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 flex items-center justify-center transition-colors shrink-0"
-                  aria-label="Send"
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <ArrowUp className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
+                <div className="flex items-center justify-between gap-3 pt-2.5 border-t border-slate-800/90">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Depth / Duration Selector */}
+                    <div className="relative" ref={depthRef}>
+                      <button
+                        type="button"
+                        disabled={isLoading}
+                        onClick={() => setDepthMenuOpen((o) => !o)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-xs font-semibold text-slate-200 transition-colors whitespace-nowrap shrink-0"
+                      >
+                        <span>{copy.depths[depth]}</span>
+                        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                      </button>
+
+                      {depthMenuOpen && (
+                        <div className="absolute left-0 bottom-full mb-2 w-48 rounded-2xl bg-[#151E30] border border-slate-700/90 shadow-2xl p-1.5 z-30">
+                          {(['qisqa', 'batafsil', 'chuqur'] as LessonDepth[]).map((d) => (
+                            <button
+                              key={d}
+                              type="button"
+                              onClick={() => {
+                                setDepth(d);
+                                setDepthMenuOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
+                                depth === d
+                                  ? 'bg-sky-500/15 text-sky-300'
+                                  : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                              }`}
+                            >
+                              {copy.depths[d]}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Internet Search Grounding Toggle */}
+                    <button
+                      type="button"
+                      disabled={isLoading}
+                      onClick={() => setUseInternet((v) => !v)}
+                      aria-pressed={useInternet}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 ${
+                        useInternet
+                          ? 'bg-sky-500/15 border-sky-500/50 text-sky-300'
+                          : 'bg-transparent border-slate-700/80 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                      }`}
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>{copy.internet}</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={isLoading || isRecording || isTranscribing}
+                      onClick={() => imageInputRef.current?.click()}
+                      title={copy.photoAttachLabel}
+                      aria-label={copy.photoAttachLabel}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shrink-0 border ${
+                        attachedImage
+                          ? 'bg-sky-500/15 border-sky-400 text-sky-300'
+                          : 'bg-slate-800/90 hover:bg-slate-700/90 border-slate-700 text-slate-300 hover:text-sky-300'
+                      } disabled:opacity-50`}
+                    >
+                      <ImagePlus className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isLoading || isTranscribing}
+                      onClick={toggleRecording}
+                      title={copy.micStartTitle}
+                      aria-label={copy.micStartTitle}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shrink-0 border ${
+                        isRecording
+                          ? 'bg-sky-500/20 border-sky-400 text-sky-300 shadow-[0_0_16px_rgba(56,189,248,0.35)] animate-pulse'
+                          : isTranscribing
+                            ? 'bg-slate-800 border-slate-700 text-sky-400'
+                            : 'bg-slate-800/90 hover:bg-slate-700/90 border-slate-700 text-slate-300 hover:text-sky-300'
+                      } disabled:opacity-50`}
+                    >
+                      {isTranscribing ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Mic className="w-4 h-4" />
+                      )}
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={
+                        (!question.trim() && !attachedImage) ||
+                        isLoading ||
+                        isRecording ||
+                        isTranscribing
+                      }
+                      className="w-10 h-10 rounded-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 flex items-center justify-center transition-colors shrink-0"
+                      aria-label="Send"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ArrowUp className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </form>
             </div>
-          </form>
-        </div>
           </>
         )}
       </main>
@@ -480,6 +697,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <footer className="relative z-10 py-3 text-center text-xs text-slate-500">
         {copy.footerNote}
       </footer>
+
+      <MiniTestModal
+        isOpen={srsModalOpen}
+        onClose={() => setSrsModalOpen(false)}
+        language={language}
+        srsCards={dueCards}
+        onSrsUpdated={onSrsUpdated}
+      />
     </div>
   );
 };

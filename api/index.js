@@ -193,29 +193,35 @@ async function createServer() {
   app.post("/api/lesson", async (req, res) => {
     try {
       const {
-        question,
+        question = "",
         depth = "qisqa",
         language = "uz",
+        track = "general",
         useInternet = false,
         previousContext = "",
         continuation = false,
-        coveredTitles = []
+        coveredTitles = [],
+        imageBase64,
+        imageMimeType = "image/jpeg"
       } = req.body ?? {};
-      if (!question || typeof question !== "string" || !question.trim()) {
-        return res.status(400).json({ error: "Savol yoki mavzuni kiriting." });
+      const hasImage = typeof imageBase64 === "string" && imageBase64.trim().length > 100;
+      const cleanQuestion = typeof question === "string" ? question.trim() : "";
+      if (!cleanQuestion && !hasImage) {
+        return res.status(400).json({ error: "Savol, mavzu yoki rasmni kiriting." });
       }
       const langKey = ["uz", "ru", "en", "tr"].includes(language) ? language : "uz";
+      const cleanTrack = ["general", "dtm", "school"].includes(String(track)) ? String(track) : "general";
       const targetLangName = LANGUAGE_NAMES[langKey];
       const ai = getAiClient();
       const targetSteps = continuation ? depth === "chuqur" ? 5 : 4 : depth === "qisqa" ? 4 : 3;
       let internetContext = "";
       const sources = [];
-      if (useInternet) {
+      if (useInternet && cleanQuestion) {
         try {
           const searchResp = await withTimeout(
             ai.models.generateContent({
               model: "gemini-4-hydrogen",
-              contents: `Find accurate, up-to-date educational facts to answer this question clearly: "${question.trim()}"`,
+              contents: `Find accurate, up-to-date educational facts to answer this question clearly: "${cleanQuestion}"`,
               config: {
                 tools: [{ googleSearch: {} }],
                 thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
@@ -278,22 +284,41 @@ DARK NOTEBOOK SKETCHING & CLARITY RULES (1000x600 squared notebook):
 - PAGE CLEARING RULE (clearBefore):
   * ALWAYS set clearBefore: true on Scene 1 AND whenever starting a new sub-diagram or after at most 2 scenes (e.g. clearBefore: true on steps 1, 3, 5). Never pile notes or drawings from different concepts on top of each other! If clearBefore is false, ONLY add new commands into empty coordinates not used in the previous scene.
 - LIVE SYNCHRONIZATION ('at' field) & COLOR CODING:
-  * Every drawCommands item MUST have "at" (strictly increasing 0.0 to 0.84) matching WHEN in "narration" you mention it, and a vivid dark-notebook "color": #38BDF8 (blue), #34D399 (green), #FBBF24 (amber/sun), #F87171 (coral), #A78BFA (violet), #F8FAFC (white). Match note text colors to the diagram parts they explain!`;
+  * Every drawCommands item MUST have "at" (strictly increasing 0.0 to 0.84) matching WHEN in "narration" you mention it, and a vivid dark-notebook "color": #38BDF8 (blue), #34D399 (green), #FBBF24 (amber/sun), #F87171 (coral), #A78BFA (violet), #F8FAFC (white). Match note text colors to the diagram parts they explain!${cleanTrack === "dtm" ? `
+
+DTM / ABITURIYENT PREP MODE (CRITICAL):
+- The student is preparing for Uzbekistan's DTM university entrance exam.
+- Teach with high exam rigor: clearly state the core rule, highlight classic DTM test traps ("DTM tuzoqlari" / common distractor mistakes), and show a fast exam shortcut alongside the standard step-by-step solution.` : cleanTrack === "school" ? `
+
+SCHOOL SYLLABUS MODE:
+- Align explanations, terminology, and worked examples cleanly to middle/high school textbook standards with encouraging clarity.` : ""}${hasImage ? `
+
+PHOTO PROBLEM SOLVER MODE (CRITICAL):
+- The student uploaded an image of a notebook, textbook, or test problem.
+- First inspect every digit, symbol, diagram, and word in the image carefully. State what is given ("Berilgan" / "Given") in Scene 1, draw the diagram/equation cleanly on the chalkboard, and solve it step-by-step.` : ""}`;
       const coveredList = Array.isArray(coveredTitles) && coveredTitles.length > 0 ? `
 Topics already covered (DO NOT repeat these; continue deeper into new subtopics, worked examples, real-world applications, and advanced insights): ${coveredTitles.join(", ")}` : "";
+      const effectiveQuestion = cleanQuestion || "Solve and explain the exact problem shown in the attached image step by step.";
       const userPrompt = continuation ? `[STRICT OUTPUT LANGUAGE: ${targetLangName}]
-Original topic: "${question.trim()}"
+Original topic: "${effectiveQuestion}"
 Previous lecture summary: ${previousContext}${coveredList}
 
 Continue the lecture seamlessly with the next deep chapter (new angles, worked examples, deeper mechanisms, practical applications). Start the first scene with clearBefore: true.` : previousContext ? `[STRICT OUTPUT LANGUAGE: ${targetLangName}]
 Previous lesson context: ${previousContext}
 
-Student's follow-up question (answer strictly in ${targetLangName}): "${question.trim()}"` : `[STRICT OUTPUT LANGUAGE: ${targetLangName}]
-Student's question (answer strictly in ${targetLangName}): "${question.trim()}"`;
+Student's follow-up question (answer strictly in ${targetLangName}): "${effectiveQuestion}"` : `[STRICT OUTPUT LANGUAGE: ${targetLangName}]
+Student's question (answer strictly in ${targetLangName}): "${effectiveQuestion}"`;
+      const cleanImageMime = String(imageMimeType || "image/jpeg").split(";")[0].trim() || "image/jpeg";
+      const requestContents = hasImage ? {
+        parts: [
+          { inlineData: { mimeType: cleanImageMime, data: imageBase64.trim() } },
+          { text: `${userPrompt}${internetContext}` }
+        ]
+      } : `${userPrompt}${internetContext}`;
       const attempts = [
-        { model: "gemini-4-hydrogen", thinkingLevel: ThinkingLevel.LOW, delayMs: 0, timeoutMs: 14e3 },
-        { model: "gemini-3.1-flash-lite", delayMs: 100, timeoutMs: 16e3 },
-        { model: "gemini-3.1-flash-lite", delayMs: 400, timeoutMs: 18e3 }
+        { model: "gemini-4-hydrogen", thinkingLevel: ThinkingLevel.LOW, delayMs: 0, timeoutMs: hasImage ? 2e4 : 14e3 },
+        { model: "gemini-3.1-flash-lite", delayMs: 100, timeoutMs: hasImage ? 2e4 : 16e3 },
+        { model: "gemini-3.1-flash-lite", delayMs: 400, timeoutMs: 2e4 }
       ];
       let parsedLesson = null;
       let lastError;
@@ -305,7 +330,7 @@ Student's question (answer strictly in ${targetLangName}): "${question.trim()}"`
           const response = await withTimeout(
             ai.models.generateContent({
               model: attempt.model,
-              contents: `${userPrompt}${internetContext}`,
+              contents: requestContents,
               config: {
                 systemInstruction,
                 responseMimeType: "application/json",
@@ -478,12 +503,14 @@ Student's question (answer strictly in ${targetLangName}): "${question.trim()}"`
       }
       const lesson = {
         id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        question: question.trim(),
+        question: cleanQuestion || (typeof parsedLesson.title === "string" ? parsedLesson.title : "Rasmli masala"),
         language: langKey,
+        track: cleanTrack,
         depth,
+        hasImage,
         createdAt: Date.now(),
         sources: sources.slice(0, 4),
-        title: typeof parsedLesson.title === "string" ? parsedLesson.title : question.trim().slice(0, 48),
+        title: typeof parsedLesson.title === "string" ? parsedLesson.title : (cleanQuestion || "Rasmli masala").slice(0, 48),
         subject: typeof parsedLesson.subject === "string" ? parsedLesson.subject : "Dars",
         summary: typeof parsedLesson.summary === "string" ? parsedLesson.summary : "",
         formulaOrFact: typeof parsedLesson.formulaOrFact === "string" ? parsedLesson.formulaOrFact : "",
@@ -747,7 +774,7 @@ Student's question (answer strictly in ${targetLangName}): "${question.trim()}"`
       },
       suggestedGame: {
         type: Type.STRING,
-        description: "Optional mini-game if user wants to play: none, rps, math, guess, riddle"
+        description: "Optional mini-game if user wants to play: none, xo, math, memory, riddle"
       }
     },
     required: ["reply", "mood", "quirk", "annoyanceDelta", "suggestedGame"]
@@ -771,12 +798,12 @@ EMOTIONAL STATE & HUMAN REACTIONS:
   * Melt happily and act cute/spoiled ("erkalanib" \u2014 e.g. "Hm, mayli... yana maqtasang butunlay kechiraman!") with mood: "proud" or "playful", quirk: "wink" or "bounce", annoyanceDelta: -2.
 - When the user shares surprising or shocking news:
   * Set mood: "surprised", quirk: "jump", annoyanceDelta: 0.
-- If the user sounds bored or wants to play: playfully suggest "rps", "math", "guess", or "riddle" in suggestedGame.`;
+- If the user sounds bored or wants to play: playfully suggest "xo", "math", "memory", or "riddle" in suggestedGame.`;
   }
   function sanitizeChatFields(parsed) {
     const validMoods = ["happy", "curious", "excited", "annoyed", "sad", "surprised", "playful", "proud", "sleepy"];
     const validQuirks = ["none", "bounce", "shake", "wiggle", "jump", "wink"];
-    const validGames = ["rps", "math", "guess", "riddle"];
+    const validGames = ["xo", "math", "memory", "riddle"];
     const mood = validMoods.includes(String(parsed.mood)) ? String(parsed.mood) : "happy";
     const quirk = validQuirks.includes(String(parsed.quirk)) ? String(parsed.quirk) : "bounce";
     const suggestedGame = validGames.includes(String(parsed.suggestedGame)) ? String(parsed.suggestedGame) : void 0;
@@ -894,7 +921,7 @@ Emotional rules (annoyance=${annoy}):
 - Teasing/mocking/annoying -> if annoyance>=2 act adorably hurt/sulky ("erkalanib", pouting for sweet words): mood=sad, quirk=wiggle, delta=2; else sassy annoyed: mood=annoyed, quirk=shake, delta=2.
 - Comfort/apology/praise -> melt happily ("erkalanib"): mood=proud|playful, quirk=wink|bounce, delta=-2.
 - Shock/surprise -> mood=surprised, quirk=jump, delta=0.
-- Bored/wants game -> suggest rps|math|guess|riddle in GAME.
+- Bored/wants game -> suggest xo|math|memory|riddle in GAME.
 
 Output ONLY one line:
 - If no human speech at all: SILENT
@@ -1288,6 +1315,145 @@ Avoid repeating these previous riddles: ${previousQuestions.slice(-6).join(" | "
       return res.status(500).json({ error: formatFriendlyError(err) });
     }
   });
+  const lessonQuizSchema = {
+    type: Type.OBJECT,
+    properties: {
+      questions: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            question: { type: Type.STRING, description: "Clear conceptual or exam-style question" },
+            options: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "Exactly 4 plausible answer choices (A, B, C, D content without letter prefixes)"
+            },
+            correctIndex: {
+              type: Type.INTEGER,
+              description: "0-based index (0, 1, 2, or 3) of the single right option"
+            },
+            hint: { type: Type.STRING, description: "Helpful guiding hint without revealing the answer" },
+            explanation: {
+              type: Type.STRING,
+              description: "Crisp 1-2 sentence explanation of why the correct option works"
+            },
+            flashcardFront: {
+              type: Type.STRING,
+              description: "Concise recall prompt for the front of a study flashcard"
+            },
+            flashcardBack: {
+              type: Type.STRING,
+              description: "Core rule, formula, or answer for the back of the flashcard"
+            }
+          },
+          required: [
+            "question",
+            "options",
+            "correctIndex",
+            "hint",
+            "explanation",
+            "flashcardFront",
+            "flashcardBack"
+          ]
+        }
+      }
+    },
+    required: ["questions"]
+  };
+  app.post("/api/lesson/quiz", async (req, res) => {
+    try {
+      const {
+        title = "",
+        subject = "",
+        summary = "",
+        formulaOrFact = "",
+        keyTakeaways = [],
+        notesExcerpt = "",
+        track = "general",
+        language = "uz"
+      } = req.body ?? {};
+      if (!String(title).trim() && !String(summary).trim()) {
+        return res.status(400).json({ error: "Dars mazmuni topilmadi." });
+      }
+      const langKey = ["uz", "ru", "en", "tr"].includes(language) ? language : "uz";
+      const targetLangName = LANGUAGE_NAMES[langKey];
+      const count = track === "dtm" ? 5 : 4;
+      const ai = getAiClient();
+      const systemInstruction = `You are Lampo creating an interactive post-lesson mini-test and flashcard deck.
+STRICT LANGUAGE RULE:
+- ${LANGUAGE_INSTRUCTIONS[langKey]}
+- EVERY SINGLE WORD must be in ${targetLangName}.
+QUALITY RULES:
+- Generate exactly ${count} targeted questions checking real understanding of this lesson (not trivial word matching).
+${track === "dtm" ? "- Since this is DTM / Abituriyent mode, craft realistic Uzbekistan DTM-style multiple choice questions with clever distractors and exam traps." : ""}
+- Every question MUST have exactly 4 concise options, 1 unambiguously correct answer (correctIndex 0..3), a helpful hint, a brief explanation, and a punchy flashcardFront / flashcardBack pair.`;
+      const prompt = `Lesson title: ${title}
+Subject: ${subject}
+Summary: ${summary}
+Formula/Rule: ${formulaOrFact}
+Takeaways: ${Array.isArray(keyTakeaways) ? keyTakeaways.join(" | ") : ""}
+Notes excerpt: ${String(notesExcerpt).slice(0, 900)}`;
+      let parsed = null;
+      let lastErr = null;
+      for (const attempt of [
+        { model: "gemini-4-hydrogen", thinking: ThinkingLevel.LOW, timeoutMs: 13e3 },
+        { model: "gemini-3.1-flash-lite", timeoutMs: 14e3 }
+      ]) {
+        try {
+          const response = await withTimeout(
+            ai.models.generateContent({
+              model: attempt.model,
+              contents: prompt,
+              config: {
+                systemInstruction,
+                responseMimeType: "application/json",
+                responseSchema: lessonQuizSchema,
+                ...attempt.thinking ? { thinkingConfig: { thinkingLevel: attempt.thinking } } : {}
+              }
+            }),
+            attempt.timeoutMs,
+            attempt.model
+          );
+          const raw = response.text?.trim();
+          if (raw) {
+            const candidate = JSON.parse(raw);
+            if (Array.isArray(candidate?.questions) && candidate.questions.length > 0) {
+              parsed = candidate;
+              break;
+            }
+          }
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      if (!parsed || !Array.isArray(parsed.questions)) {
+        return res.status(503).json({
+          error: lastErr ? formatFriendlyError(lastErr) : "Mini-test savollari tayyorlanmadi."
+        });
+      }
+      const questions = parsed.questions.slice(0, 5).map((q, idx) => {
+        const rawOpts = Array.isArray(q.options) ? q.options.map((o) => String(o).trim()) : [];
+        while (rawOpts.length < 4) rawOpts.push("-");
+        const options = rawOpts.slice(0, 4);
+        const cIdx = Math.max(0, Math.min(3, Number(q.correctIndex) || 0));
+        return {
+          id: `q_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+          question: String(q.question || "").trim(),
+          options,
+          correctIndex: cIdx,
+          hint: String(q.hint || "").trim(),
+          explanation: String(q.explanation || "").trim(),
+          flashcardFront: String(q.flashcardFront || q.question || "").trim(),
+          flashcardBack: String(q.flashcardBack || options[cIdx] || "").trim()
+        };
+      }).filter((q) => q.question.length > 0);
+      return res.json({ questions });
+    } catch (err) {
+      console.error("Error in /api/lesson/quiz:", err);
+      return res.status(500).json({ error: formatFriendlyError(err) });
+    }
+  });
   if (process.env.VERCEL) {
     return app;
   }
@@ -1354,7 +1520,7 @@ Avoid repeating these previous riddles: ${previousQuestions.slice(-6).join(" | "
 Lampo: "${outputText.slice(0, 140)}"
 Current annoyance: ${annoyanceLevel}`,
           config: {
-            systemInstruction: "Classify Lampo's exact facial mood/quirk in 1 line: MOOD|QUIRK|DELTA|GAME\nMOOD: happy|excited|playful|proud|annoyed|sad|surprised|curious\nQUIRK: bounce|shake|wiggle|jump|wink|none\nDELTA: -2..2\nGAME: none|rps|math|guess|riddle",
+            systemInstruction: "Classify Lampo's exact facial mood/quirk in 1 line: MOOD|QUIRK|DELTA|GAME\nMOOD: happy|excited|playful|proud|annoyed|sad|surprised|curious\nQUIRK: bounce|shake|wiggle|jump|wink|none\nDELTA: -2..2\nGAME: none|xo|math|memory|riddle",
             maxOutputTokens: 20
           }
         }),
