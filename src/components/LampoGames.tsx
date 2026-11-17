@@ -162,7 +162,21 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
 
   const speakTokenRef = useRef(0);
   const xoTimerRef = useRef<number | null>(null);
+  const mathTimerRef = useRef<number | null>(null);
   const memoryTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+
+  const ttsCacheRef = useRef<
+    Map<string, { audioBase64: string; mimeType: string }>
+  >(new Map());
+  const inFlightTtsRef = useRef<
+    Map<string, Promise<{ audioBase64: string; mimeType: string } | null>>
+  >(new Map());
+  const prefetchedRiddleRef = useRef<{
+    lang: AppLanguage;
+    item: RiddleItem;
+  } | null>(null);
+  const prefetchingRiddleRef = useRef(false);
 
   // X vs O state
   const [xoBoard, setXoBoard] = useState<XoCell[]>(() => Array(9).fill(null));
@@ -199,13 +213,121 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
   }, [initialGame]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       speakTokenRef.current += 1;
       if (xoTimerRef.current !== null) window.clearTimeout(xoTimerRef.current);
+      if (mathTimerRef.current !== null) window.clearTimeout(mathTimerRef.current);
       if (memoryTimerRef.current !== null) window.clearTimeout(memoryTimerRef.current);
       stopActiveAudio();
     };
   }, []);
+
+  const fetchAndCacheTts = useCallback(
+    (
+      text: string,
+      targetLang: AppLanguage,
+      voiceMood: LampoMood
+    ): Promise<{ audioBase64: string; mimeType: string } | null> => {
+      const cleanText = text.trim();
+      if (!cleanText) return Promise.resolve(null);
+      const cacheKey = `${targetLang}:${voiceMood}:${cleanText}`;
+      const cached = ttsCacheRef.current.get(cacheKey);
+      if (cached) return Promise.resolve(cached);
+
+      const inFlight = inFlightTtsRef.current.get(cacheKey);
+      if (inFlight) return inFlight;
+
+      const req = fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: cleanText,
+          language: targetLang,
+          voice: 'Kore',
+          mood: voiceMood,
+        }),
+      })
+        .then(async (res) => {
+          if (!res.ok) return null;
+          const data = await res.json();
+          if (!data?.audioBase64) return null;
+          const payload = {
+            audioBase64: String(data.audioBase64),
+            mimeType: String(data.mimeType || 'audio/mpeg'),
+          };
+          ttsCacheRef.current.set(cacheKey, payload);
+          return payload;
+        })
+        .catch(() => null)
+        .finally(() => {
+          inFlightTtsRef.current.delete(cacheKey);
+        });
+
+      inFlightTtsRef.current.set(cacheKey, req);
+      return req;
+    },
+    []
+  );
+
+  // Pre-warm static game reaction voices + first riddle so every move reacts in ~0ms
+  useEffect(() => {
+    if (isMuted) return;
+    const warmQueue: Array<[string, LampoMood]> = [
+      [copy.xoWelcome, 'excited'],
+      [copy.xoWin, 'annoyed'],
+      [copy.xoLose, 'proud'],
+      [copy.xoDraw, 'surprised'],
+      [copy.mathWelcome, 'curious'],
+      [copy.mathCorrect, 'excited'],
+      [copy.memoryWelcome, 'playful'],
+      [copy.memoryWon, 'proud'],
+      [copy.riddleWrong, 'playful'],
+    ];
+    let cancelled = false;
+    (async () => {
+      for (const [text, m] of warmQueue) {
+        if (cancelled || !mountedRef.current) break;
+        await fetchAndCacheTts(text, language, m);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [copy, fetchAndCacheTts, isMuted, language]);
+
+  const prefetchNextRiddle = useCallback(
+    async (avoidList: string[]) => {
+      if (prefetchingRiddleRef.current) return;
+      if (prefetchedRiddleRef.current?.lang === language) return;
+      prefetchingRiddleRef.current = true;
+      try {
+        const res = await fetch('/api/riddle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ language, previousQuestions: avoidList }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as RiddleItem;
+        if (!mountedRef.current || !data?.question) return;
+        prefetchedRiddleRef.current = { lang: language, item: data };
+        if (!isMuted) {
+          void fetchAndCacheTts(`${copy.riddleWelcome} ${data.question}`, language, 'playful');
+        }
+      } catch {
+        // non-fatal prefetch
+      } finally {
+        prefetchingRiddleRef.current = false;
+      }
+    },
+    [copy.riddleWelcome, fetchAndCacheTts, isMuted, language]
+  );
+
+  useEffect(() => {
+    prefetchedRiddleRef.current = null;
+    void prefetchNextRiddle([]);
+  }, [language, prefetchNextRiddle]);
 
   const reactLampo = useCallback(
     async (
@@ -221,16 +343,13 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
 
       if (!speak || isMuted || !text.trim()) return;
       const token = ++speakTokenRef.current;
+      stopActiveAudio();
+      setIsSpeaking(false);
+
       try {
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, language, voice: 'Kore', mood: nextMood }),
-        });
-        if (!res.ok || speakTokenRef.current !== token) return;
-        const data = await res.json();
-        if (!data?.audioBase64 || speakTokenRef.current !== token) return;
-        await playBase64Audio(data.audioBase64, data.mimeType || 'audio/mpeg', {
+        const payload = await fetchAndCacheTts(text, language, nextMood);
+        if (!payload || speakTokenRef.current !== token || !mountedRef.current) return;
+        await playBase64Audio(payload.audioBase64, payload.mimeType, {
           onStart: () => {
             if (speakTokenRef.current === token) setIsSpeaking(true);
           },
@@ -248,15 +367,29 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
         if (speakTokenRef.current === token) setIsSpeaking(false);
       }
     },
-    [isMuted, language]
+    [fetchAndCacheTts, isMuted, language]
   );
 
   const loadNewRiddle = useCallback(async () => {
-    setRiddleLoading(true);
     setRiddleInput('');
     setShowHint(false);
     setRiddleSolved(false);
     setMood('curious');
+
+    const cachedReady =
+      prefetchedRiddleRef.current?.lang === language ? prefetchedRiddleRef.current.item : null;
+    if (cachedReady) {
+      prefetchedRiddleRef.current = null;
+      const nextHistory = [...prevRiddles.slice(-5), cachedReady.question];
+      setRiddle(cachedReady);
+      setPrevRiddles(nextHistory);
+      setRiddleLoading(false);
+      void reactLampo(`${copy.riddleWelcome} ${cachedReady.question}`, 'playful', 'bounce', true);
+      void prefetchNextRiddle(nextHistory);
+      return;
+    }
+
+    setRiddleLoading(true);
     try {
       const res = await fetch('/api/riddle', {
         method: 'POST',
@@ -265,9 +398,11 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
       });
       if (!res.ok) throw new Error('Failed');
       const data = (await res.json()) as RiddleItem;
+      const nextHistory = [...prevRiddles.slice(-5), data.question];
       setRiddle(data);
-      setPrevRiddles((p) => [...p.slice(-5), data.question]);
+      setPrevRiddles(nextHistory);
       void reactLampo(`${copy.riddleWelcome} ${data.question}`, 'playful', 'bounce', true);
+      void prefetchNextRiddle(nextHistory);
     } catch {
       const fallback: RiddleItem =
         language === 'ru'
@@ -302,7 +437,7 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
     } finally {
       setRiddleLoading(false);
     }
-  }, [language, prevRiddles, reactLampo, copy.riddleWelcome]);
+  }, [language, prevRiddles, prefetchNextRiddle, reactLampo, copy.riddleWelcome]);
 
   const resetXoRound = useCallback(
     (resetScore = false) => {
@@ -391,7 +526,7 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
         setXoWinInfo(botCheck);
         void reactLampo(copy.xoDraw, 'playful', 'wiggle', true);
       }
-    }, 360);
+    }, 80);
   };
 
   // Math check
@@ -406,11 +541,13 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
       setMathStreak(nextStreak);
       setMathFeedback('correct');
       void reactLampo(copy.mathCorrect, 'excited', 'jump', true);
-      window.setTimeout(() => {
+      if (mathTimerRef.current !== null) window.clearTimeout(mathTimerRef.current);
+      mathTimerRef.current = window.setTimeout(() => {
+        mathTimerRef.current = null;
         setMathProblem(makeMathProblem(nextStreak));
         setMathInput('');
         setMathFeedback(null);
-      }, 950);
+      }, 220);
     } else {
       setMathStreak(0);
       setMathFeedback('wrong');
@@ -461,7 +598,7 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
             )
           );
           setMemoryLocked(false);
-        }, 620);
+        }, 320);
       }
     }
   };
@@ -534,6 +671,7 @@ export const LampoGames: React.FC<LampoGamesProps> = ({
             onClick={() => {
               speakTokenRef.current += 1;
               if (xoTimerRef.current !== null) window.clearTimeout(xoTimerRef.current);
+              if (mathTimerRef.current !== null) window.clearTimeout(mathTimerRef.current);
               if (memoryTimerRef.current !== null) window.clearTimeout(memoryTimerRef.current);
               stopActiveAudio();
               setIsSpeaking(false);

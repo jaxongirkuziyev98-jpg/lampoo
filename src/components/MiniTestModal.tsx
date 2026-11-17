@@ -75,6 +75,9 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
   const [quirkKey, setQuirkKey] = useState(0);
   const [lampoNote, setLampoNote] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const initializedSessionKeyRef = useRef<string | null>(null);
+  const onQuizLoadedRef = useRef(onQuizLoaded);
+  onQuizLoadedRef.current = onQuizLoaded;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -83,19 +86,42 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
     };
   }, []);
 
+  const sanitizeQuizQuestion = useCallback((raw: QuizQuestion, idx: number): QuizQuestion => {
+    const rawOpts = Array.isArray(raw.options)
+      ? raw.options.map((o) => String(o ?? '').trim() || '-')
+      : [];
+    while (rawOpts.length < 4) rawOpts.push('-');
+    const options = rawOpts.slice(0, 4) as [string, string, string, string];
+    const correctIndex = Math.max(0, Math.min(3, Number(raw.correctIndex) || 0));
+    const questionText = String(raw.question || '').trim() || `Savol ${idx + 1}`;
+    return {
+      id: String(raw.id || '').trim() || `q_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+      question: questionText,
+      options,
+      correctIndex,
+      hint: String(raw.hint || '').trim(),
+      explanation: String(raw.explanation || '').trim() || options[correctIndex],
+      flashcardFront: String(raw.flashcardFront || questionText).trim(),
+      flashcardBack: String(raw.flashcardBack || options[correctIndex]).trim(),
+    };
+  }, []);
+
   const buildQueueFromQuestions = useCallback(
     (items: QuizQuestion[], meta?: { lessonId: string; lessonTitle: string; subject: string; track: StudyTrack }) => {
-      const nextQueue: QueueItem[] = items.map((q) => {
-        const card = q as Partial<SrsCard>;
-        return {
-          question: q,
-          isRetry: Boolean(card.wrongCount && card.wrongCount > 0),
-          lessonId: meta?.lessonId || card.lessonId || 'srs',
-          lessonTitle: meta?.lessonTitle || card.lessonTitle || copy.srsReviewTitle,
-          subject: meta?.subject || card.subject || 'Dars',
-          track: meta?.track || card.track || 'general',
-        };
-      });
+      const nextQueue: QueueItem[] = items
+        .filter((q) => Boolean(q) && typeof q === 'object')
+        .map((q, idx) => {
+          const card = q as Partial<SrsCard>;
+          const cleanQuestion = sanitizeQuizQuestion(q, idx);
+          return {
+            question: cleanQuestion,
+            isRetry: Boolean(card.wrongCount && card.wrongCount > 0),
+            lessonId: meta?.lessonId || card.lessonId || 'srs',
+            lessonTitle: meta?.lessonTitle || card.lessonTitle || copy.srsReviewTitle,
+            subject: meta?.subject || card.subject || 'Dars',
+            track: meta?.track || card.track || 'general',
+          };
+        });
       setQueue(nextQueue);
       setCursor(0);
       setSelectedOption(null);
@@ -109,7 +135,7 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
       setQuirkKey((k) => k + 1);
       setLampoNote(null);
     },
-    [copy.srsReviewTitle]
+    [copy.srsReviewTitle, sanitizeQuizQuestion]
   );
 
   const loadLessonQuiz = useCallback(async () => {
@@ -121,6 +147,8 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
         subject: lesson.subject,
         track: lesson.track || 'general',
       });
+      setLoadError(null);
+      setIsLoading(false);
       return;
     }
 
@@ -129,7 +157,7 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
     try {
       const notesExcerpt = (lesson.steps || [])
         .slice(0, 5)
-        .map((s) => `${s.stepTitle}: ${s.writtenNotes}`)
+        .map((s) => `${s.stepTitle || ''}: ${s.writtenNotes || ''}`)
         .join('\n');
 
       const res = await fetch('/api/lesson/quiz', {
@@ -146,21 +174,29 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
           language: lesson.language || language,
         }),
       });
-      const data = await res.json();
+      const rawText = await res.text();
+      let data: Record<string, unknown> = {};
+      try {
+        data = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
+      } catch {
+        data = {};
+      }
       if (!mountedRef.current) return;
 
       if (!res.ok || !Array.isArray(data?.questions) || data.questions.length === 0) {
         throw new Error(typeof data?.error === 'string' ? data.error : copy.miniTestError);
       }
 
-      const fetched = data.questions as QuizQuestion[];
-      onQuizLoaded?.(lesson.id, fetched);
+      const fetched = (data.questions as QuizQuestion[]).map((q, idx) =>
+        sanitizeQuizQuestion(q, idx)
+      );
       buildQueueFromQuestions(fetched, {
         lessonId: lesson.id,
         lessonTitle: lesson.title,
         subject: lesson.subject,
         track: lesson.track || 'general',
       });
+      onQuizLoadedRef.current?.(lesson.id, fetched);
     } catch (err) {
       if (!mountedRef.current) return;
       setLoadError(err instanceof Error ? err.message : copy.miniTestError);
@@ -169,10 +205,25 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
         setIsLoading(false);
       }
     }
-  }, [lesson, language, buildQueueFromQuestions, copy.miniTestError, onQuizLoaded]);
+  }, [lesson, language, buildQueueFromQuestions, copy.miniTestError, sanitizeQuizQuestion]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      initializedSessionKeyRef.current = null;
+      return;
+    }
+
+    const sessionKey = lesson
+      ? `lesson:${lesson.id}`
+      : srsCards && srsCards.length > 0
+        ? 'srs:review'
+        : null;
+
+    if (!sessionKey || initializedSessionKeyRef.current === sessionKey) {
+      return;
+    }
+    initializedSessionKeyRef.current = sessionKey;
+
     if (srsCards && srsCards.length > 0 && !lesson) {
       buildQueueFromQuestions(srsCards.slice(0, 6));
       setLoadError(null);
@@ -194,15 +245,19 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
     setSelectedOption(optionIdx);
 
     const isCorrect = optionIdx === currentItem.question.correctIndex;
-    recordSrsAnswer({
-      question: currentItem.question,
-      lessonId: currentItem.lessonId,
-      lessonTitle: currentItem.lessonTitle,
-      subject: currentItem.subject,
-      track: currentItem.track,
-      isCorrect,
-    });
-    onSrsUpdated?.();
+    try {
+      recordSrsAnswer({
+        question: currentItem.question,
+        lessonId: currentItem.lessonId,
+        lessonTitle: currentItem.lessonTitle,
+        subject: currentItem.subject,
+        track: currentItem.track,
+        isCorrect,
+      });
+      onSrsUpdated?.();
+    } catch {
+      // non-fatal storage error
+    }
 
     if (isCorrect) {
       if (!currentItem.isRetry) {
@@ -236,7 +291,8 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
   };
 
   const advanceNext = () => {
-    if (cursor + 1 >= queue.length) {
+    const nextIdx = cursor + 1;
+    if (nextIdx >= queue.length || !queue[nextIdx]) {
       setFinished(true);
       setLampoMood('proud');
       setLampoQuirk('jump');
@@ -244,7 +300,7 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
       setLampoNote(null);
       return;
     }
-    setCursor((c) => c + 1);
+    setCursor(nextIdx);
     setSelectedOption(null);
     setShowHint(false);
     setIsFlipped(false);
@@ -254,15 +310,19 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
 
   const handleFlashcardRate = (known: boolean) => {
     if (!currentItem) return;
-    recordSrsAnswer({
-      question: currentItem.question,
-      lessonId: currentItem.lessonId,
-      lessonTitle: currentItem.lessonTitle,
-      subject: currentItem.subject,
-      track: currentItem.track,
-      isCorrect: known,
-    });
-    onSrsUpdated?.();
+    try {
+      recordSrsAnswer({
+        question: currentItem.question,
+        lessonId: currentItem.lessonId,
+        lessonTitle: currentItem.lessonTitle,
+        subject: currentItem.subject,
+        track: currentItem.track,
+        isCorrect: known,
+      });
+      onSrsUpdated?.();
+    } catch {
+      // non-fatal storage error
+    }
 
     if (known) {
       if (!currentItem.isRetry) {
@@ -295,13 +355,25 @@ export const MiniTestModal: React.FC<MiniTestModalProps> = ({
   const handleRestart = () => {
     if (srsCards && srsCards.length > 0 && !lesson) {
       buildQueueFromQuestions(srsCards.slice(0, 6));
-    } else if (lesson?.quizQuestions) {
+    } else if (lesson?.quizQuestions && lesson.quizQuestions.length > 0) {
       buildQueueFromQuestions(lesson.quizQuestions, {
         lessonId: lesson.id,
         lessonTitle: lesson.title,
         subject: lesson.subject,
         track: lesson.track || 'general',
       });
+    } else if (queue.length > 0) {
+      buildQueueFromQuestions(
+        queue.filter((item) => !item.isRetry).map((item) => item.question),
+        lesson
+          ? {
+              lessonId: lesson.id,
+              lessonTitle: lesson.title,
+              subject: lesson.subject,
+              track: lesson.track || 'general',
+            }
+          : undefined
+      );
     }
   };
 

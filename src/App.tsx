@@ -191,6 +191,10 @@ export default function App() {
     setHistory((h) => h.map((item) => (item.id === lessonId ? { ...item, quizQuestions: questions } : item)));
   }, []);
 
+  const handleSrsUpdated = useCallback(() => {
+    setSrsVersion((v) => v + 1);
+  }, []);
+
   const handleDeleteLesson = useCallback((id: string) => {
     setHistory((prev) => prev.filter((item) => item.id !== id));
   }, []);
@@ -222,7 +226,7 @@ export default function App() {
           }
           onRequestContinuation={requestContinuation}
           onQuizLoaded={handleSaveQuiz}
-          onSrsUpdated={() => setSrsVersion((v) => v + 1)}
+          onSrsUpdated={handleSrsUpdated}
           isGeneratingFollowUp={isLoading}
           isContinuingLecture={isContinuingLecture}
           errorMessage={errorMessage}
@@ -241,7 +245,7 @@ export default function App() {
           historyCount={history.length}
           errorMessage={errorMessage}
           srsVersion={srsVersion}
-          onSrsUpdated={() => setSrsVersion((v) => v + 1)}
+          onSrsUpdated={handleSrsUpdated}
         />
       )}
 

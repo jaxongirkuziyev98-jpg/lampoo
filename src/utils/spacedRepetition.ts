@@ -7,7 +7,16 @@ export function loadSrsCards(): SrsCard[] {
     const raw = localStorage.getItem(SRS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as SrsCard[]) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (c): c is SrsCard =>
+        Boolean(c) &&
+        typeof c === 'object' &&
+        typeof c.question === 'string' &&
+        c.question.trim().length > 0 &&
+        Array.isArray(c.options) &&
+        c.options.length >= 2
+    );
   } catch {
     return [];
   }
@@ -29,60 +38,69 @@ export function recordSrsAnswer(params: {
   track: StudyTrack;
   isCorrect: boolean;
 }): SrsCard[] {
-  const now = Date.now();
-  const cards = loadSrsCards();
-  const existingIdx = cards.findIndex(
-    (c) => c.id === params.question.id || c.question.trim() === params.question.question.trim()
-  );
+  try {
+    const now = Date.now();
+    const cards = loadSrsCards();
+    const qId = String(params.question?.id || '');
+    const qText = String(params.question?.question || '').trim();
+    const existingIdx = cards.findIndex(
+      (c) => (qId && c.id === qId) || (qText && String(c.question || '').trim() === qText)
+    );
 
-  if (existingIdx >= 0) {
-    const existing = cards[existingIdx];
-    const nextStreak = params.isCorrect ? existing.correctStreak + 1 : 0;
-    const nextWrong = params.isCorrect ? existing.wrongCount : existing.wrongCount + 1;
-    // Wrong answers come back in 2 minutes; consecutive right answers space out: 12m -> 6h -> 1d -> 3d
-    const nextInterval = params.isCorrect
-      ? nextStreak <= 1
-        ? 12
-        : nextStreak === 2
-          ? 360
-          : nextStreak === 3
-            ? 1440
-            : 4320
-      : 2;
+    if (existingIdx >= 0) {
+      const existing = cards[existingIdx];
+      const nextStreak = params.isCorrect ? (Number(existing.correctStreak) || 0) + 1 : 0;
+      const nextWrong = params.isCorrect
+        ? Number(existing.wrongCount) || 0
+        : (Number(existing.wrongCount) || 0) + 1;
+      // Wrong answers come back in 2 minutes; consecutive right answers space out: 12m -> 6h -> 1d -> 3d
+      const nextInterval = params.isCorrect
+        ? nextStreak <= 1
+          ? 12
+          : nextStreak === 2
+            ? 360
+            : nextStreak === 3
+              ? 1440
+              : 4320
+        : 2;
 
-    const updated: SrsCard = {
-      ...existing,
-      wrongCount: nextWrong,
-      correctStreak: nextStreak,
-      intervalMinutes: nextInterval,
-      nextReviewAt: now + nextInterval * 60 * 1000,
+      const updated: SrsCard = {
+        ...existing,
+        wrongCount: nextWrong,
+        correctStreak: nextStreak,
+        intervalMinutes: nextInterval,
+        nextReviewAt: now + nextInterval * 60 * 1000,
+        lastReviewedAt: now,
+      };
+      cards.splice(existingIdx, 1);
+      cards.unshift(updated);
+      saveSrsCards(cards);
+      return cards;
+    }
+
+    // Only prioritize into the active SRS queue immediately if wrong or explicitly reviewed;
+    // correct first-time cards are scheduled gently for 24h later so users don't get spammed immediately.
+    const intervalMinutes = params.isCorrect ? 1440 : 2;
+    const newCard: SrsCard = {
+      ...params.question,
+      id: qId || `srs_${now}_${Math.random().toString(36).slice(2, 6)}`,
+      lessonId: params.lessonId,
+      lessonTitle: params.lessonTitle,
+      subject: params.subject,
+      track: params.track,
+      wrongCount: params.isCorrect ? 0 : 1,
+      correctStreak: params.isCorrect ? 1 : 0,
+      intervalMinutes,
+      nextReviewAt: now + intervalMinutes * 60 * 1000,
       lastReviewedAt: now,
     };
-    cards.splice(existingIdx, 1);
-    cards.unshift(updated);
+
+    cards.unshift(newCard);
     saveSrsCards(cards);
     return cards;
+  } catch {
+    return [];
   }
-
-  // Only prioritize into the active SRS queue immediately if wrong or explicitly reviewed;
-  // correct first-time cards are scheduled gently for 24h later so users don't get spammed immediately.
-  const intervalMinutes = params.isCorrect ? 1440 : 2;
-  const newCard: SrsCard = {
-    ...params.question,
-    lessonId: params.lessonId,
-    lessonTitle: params.lessonTitle,
-    subject: params.subject,
-    track: params.track,
-    wrongCount: params.isCorrect ? 0 : 1,
-    correctStreak: params.isCorrect ? 1 : 0,
-    intervalMinutes,
-    nextReviewAt: now + intervalMinutes * 60 * 1000,
-    lastReviewedAt: now,
-  };
-
-  cards.unshift(newCard);
-  saveSrsCards(cards);
-  return cards;
 }
 
 export function getDueSrsCards(now = Date.now()): SrsCard[] {

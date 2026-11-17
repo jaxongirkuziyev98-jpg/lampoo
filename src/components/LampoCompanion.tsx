@@ -24,10 +24,11 @@ type LivePhase = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 const TARGET_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
-const TRAILING_SILENCE_MS = 220;
+const TRAILING_SILENCE_MS = 380;
 const MAX_UTTERANCE_MS = 14000;
-const PRE_ROLL_MS = 240;
-const BARGE_IN_GRACE_MS = 320;
+const PRE_ROLL_MS = 280;
+const BARGE_IN_GRACE_MS = 380;
+const ECHO_TAIL_GUARD_MS = 340;
 
 function downsampleToInt16(input: Float32Array, inputRate: number): Int16Array {
   if (inputRate <= TARGET_SAMPLE_RATE) {
@@ -167,10 +168,13 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
   // Realtime WebSocket Live API refs
   const liveWsRef = useRef<WebSocket | null>(null);
   const wsLiveReadyRef = useRef(false);
+  const wsRetryCountRef = useRef(0);
+  const wsReconnectTimerRef = useRef<number | null>(null);
   const greetingFinishedRef = useRef(false);
   const activeLiveSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const nextPlayTimeRef = useRef(0);
   const liveTurnCompletePendingRef = useRef(false);
+  const speakingEndedAtRef = useRef(0);
 
   // Fallback HTTP stream refs
   const turnTokenRef = useRef(0);
@@ -261,8 +265,13 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
   const stopLiveCall = useCallback(() => {
     callActiveRef.current = false;
     wsLiveReadyRef.current = false;
+    wsRetryCountRef.current = 0;
     greetingFinishedRef.current = false;
     turnTokenRef.current += 1;
+    if (wsReconnectTimerRef.current !== null) {
+      window.clearTimeout(wsReconnectTimerRef.current);
+      wsReconnectTimerRef.current = null;
+    }
     abortInFlightTurn();
 
     if (liveWsRef.current) {
@@ -377,6 +386,7 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
         ) {
           liveTurnCompletePendingRef.current = false;
           nextPlayTimeRef.current = 0;
+          speakingEndedAtRef.current = Date.now();
           setLivePhase('listening');
         }
       };
@@ -392,9 +402,30 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
 
   const openRealtimeLiveSocket = useCallback(
     (lang: AppLanguage) => {
+      if (!callActiveRef.current || !mountedRef.current) return;
+      if (wsReconnectTimerRef.current !== null) {
+        window.clearTimeout(wsReconnectTimerRef.current);
+        wsReconnectTimerRef.current = null;
+      }
+
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const ws = new WebSocket(`${proto}//${window.location.host}/ws/live?lang=${lang}`);
       liveWsRef.current = ws;
+
+      const scheduleReconnect = () => {
+        if (!mountedRef.current || !callActiveRef.current) return;
+        if (wsRetryCountRef.current >= 3) return;
+        wsRetryCountRef.current += 1;
+        if (wsReconnectTimerRef.current !== null) {
+          window.clearTimeout(wsReconnectTimerRef.current);
+        }
+        wsReconnectTimerRef.current = window.setTimeout(() => {
+          wsReconnectTimerRef.current = null;
+          if (mountedRef.current && callActiveRef.current && !liveWsRef.current) {
+            openRealtimeLiveSocket(languageRef.current);
+          }
+        }, 500 * wsRetryCountRef.current);
+      };
 
       ws.onmessage = (event) => {
         if (!mountedRef.current || !callActiveRef.current || liveWsRef.current !== ws) return;
@@ -407,6 +438,7 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
 
         if (msg.type === 'ready') {
           wsLiveReadyRef.current = true;
+          wsRetryCountRef.current = 0;
           return;
         }
 
@@ -418,10 +450,12 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
             // ignore
           }
           if (liveWsRef.current === ws) liveWsRef.current = null;
+          scheduleReconnect();
           return;
         }
 
         if (msg.type === 'audio' && typeof msg.data === 'string') {
+          speechStartedAtRef.current = Date.now();
           scheduleLivePcm24k(msg.data);
           return;
         }
@@ -457,6 +491,7 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
           liveTurnCompletePendingRef.current = true;
           if (activeLiveSourcesRef.current.size === 0 && greetingFinishedRef.current) {
             nextPlayTimeRef.current = 0;
+            speakingEndedAtRef.current = Date.now();
             setLivePhase('listening');
           }
         }
@@ -470,6 +505,7 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
         wsLiveReadyRef.current = false;
         if (liveWsRef.current === ws) {
           liveWsRef.current = null;
+          scheduleReconnect();
         }
       };
     },
@@ -517,6 +553,7 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
       } finally {
         isDrainingQueueRef.current = false;
         greetingFinishedRef.current = true;
+        speakingEndedAtRef.current = Date.now();
         if (mountedRef.current && callActiveRef.current && turnTokenRef.current === token) {
           resetUtteranceRef.current();
           if (activeLiveSourcesRef.current.size === 0) {
@@ -712,23 +749,22 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
         if (!mountedRef.current || !callActiveRef.current || turnTokenRef.current !== token) {
           return;
         }
-        setMood('curious');
-        setQuirk('wiggle');
-        setQuirkKey((k) => k + 1);
-        await speakTextViaTts(UI_COPY[languageRef.current].liveReconnectLine, token, 'curious');
+        resetUtteranceRef.current();
+        setLivePhase('listening');
       } finally {
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
         }
       }
     },
-    [abortInFlightTurn, drainAudioQueue, setLivePhase, speakTextViaTts]
+    [abortInFlightTurn, drainAudioQueue, setLivePhase]
   );
 
   const attachLiveVadProcessor = useCallback(
     (vadCtx: AudioContext, stream: MediaStream) => {
+      const bufferSize = 2048;
       const source = vadCtx.createMediaStreamSource(stream);
-      const processor = vadCtx.createScriptProcessor(1024, 1, 1);
+      const processor = vadCtx.createScriptProcessor(bufferSize, 1, 1);
       const silentGain = vadCtx.createGain();
       silentGain.gain.value = 0;
 
@@ -742,20 +778,26 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
 
       const maxPreRollChunks = Math.max(
         2,
-        Math.ceil((PRE_ROLL_MS / 1000) * (vadCtx.sampleRate / 1024))
+        Math.ceil((PRE_ROLL_MS / 1000) * (vadCtx.sampleRate / bufferSize))
       );
       let preRoll: Int16Array[] = [];
       let speechChunks: Int16Array[] = [];
       let speechActive = false;
       let speechStartedAt = 0;
       let lastSpeechAt = 0;
-      let noiseFloor = 0.0035;
+      let noiseFloor = 0.008;
+      let noiseSamples = 0;
+      let speechStreak = 0;
+      let maxUtteranceRms = 0;
       let bargeInStreak = 0;
+      let wsKeepaliveTick = 0;
 
       resetUtteranceRef.current = () => {
         speechActive = false;
         speechChunks = [];
         preRoll = [];
+        speechStreak = 0;
+        maxUtteranceRms = 0;
         bargeInStreak = 0;
         if (mountedRef.current) setMicLevel(0);
       };
@@ -772,15 +814,60 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
         const now = Date.now();
         const pcm = downsampleToInt16(input, vadCtx.sampleRate);
 
-        // Primary Ultra-Low-Latency Path: continuous 16kHz PCM stream to Gemini Live WebSocket
+        // Calibrate baseline ambient room noise cleanly during early listening frames
+        if (phaseRef.current === 'listening' && !speechActive && noiseSamples < 14) {
+          noiseSamples += 1;
+          noiseFloor = Math.max(0.004, Math.min(0.028, noiseFloor * 0.78 + rms * 0.22));
+        } else if (phaseRef.current === 'listening' && !speechActive && rms < noiseFloor * 1.8) {
+          noiseFloor = Math.max(0.004, Math.min(0.028, noiseFloor * 0.94 + rms * 0.06));
+        }
+
+        // Primary Ultra-Low-Latency Path: 16kHz PCM stream to Gemini Live WebSocket
         const ws = liveWsRef.current;
         if (wsLiveReadyRef.current && ws && ws.readyState === WebSocket.OPEN) {
-          if (!greetingFinishedRef.current) {
+          // Suppress speaker echo while greeting or Lampo's reply is playing + echo decay tail
+          const isSpeakingOrTail =
+            !greetingFinishedRef.current ||
+            phaseRef.current === 'speaking' ||
+            now - speakingEndedAtRef.current < ECHO_TAIL_GUARD_MS;
+
+          if (isSpeakingOrTail) {
+            setMicLevel(0);
+            // Allow genuine loud user barge-in after grace period
+            if (
+              greetingFinishedRef.current &&
+              phaseRef.current === 'speaking' &&
+              now - speechStartedAtRef.current > BARGE_IN_GRACE_MS &&
+              rms > Math.max(0.058, noiseFloor * 4.6)
+            ) {
+              bargeInStreak += 1;
+              if (bargeInStreak >= 3) {
+                bargeInStreak = 0;
+                stopLivePcmPlayback();
+                speakingEndedAtRef.current = 0;
+                setLivePhase('listening');
+                ws.send(JSON.stringify({ type: 'audio', data: int16ToBase64(pcm) }));
+              }
+            } else {
+              bargeInStreak = 0;
+              // Light silent keepalive every ~600ms so WS doesn't go idle during long replies
+              wsKeepaliveTick = (wsKeepaliveTick + 1) % 8;
+              if (wsKeepaliveTick === 0) {
+                ws.send(
+                  JSON.stringify({
+                    type: 'audio',
+                    data: int16ToBase64(new Int16Array(pcm.length)),
+                  })
+                );
+              }
+            }
             return;
           }
+
+          bargeInStreak = 0;
           setMicLevel(
             phaseRef.current === 'listening'
-              ? Math.min(1, Math.max(0, (rms - 0.0015) * 28))
+              ? Math.min(1, Math.max(0, (rms - noiseFloor * 0.8) * 24))
               : 0
           );
           ws.send(JSON.stringify({ type: 'audio', data: int16ToBase64(pcm) }));
@@ -789,13 +876,13 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
 
         // Fallback HTTP Streaming Path (if WebSocket Live unavailable)
         const curPhase = phaseRef.current;
-        if (curPhase === 'speaking') {
+        if (curPhase === 'speaking' || now - speakingEndedAtRef.current < ECHO_TAIL_GUARD_MS) {
           setMicLevel(0);
-          if (now - speechStartedAtRef.current < BARGE_IN_GRACE_MS) {
+          if (curPhase === 'speaking' && now - speechStartedAtRef.current < BARGE_IN_GRACE_MS) {
             return;
           }
-          const bargeThreshold = Math.max(0.022, noiseFloor * 3.8);
-          if (rms > bargeThreshold) {
+          const bargeThreshold = Math.max(0.055, noiseFloor * 4.5);
+          if (curPhase === 'speaking' && rms > bargeThreshold) {
             bargeInStreak += 1;
             if (bargeInStreak >= 3) {
               bargeInStreak = 0;
@@ -805,6 +892,7 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
               speechActive = true;
               speechStartedAt = now;
               lastSpeechAt = now;
+              maxUtteranceRms = rms;
               speechChunks = [...preRoll, pcm];
               preRoll = [];
             }
@@ -818,29 +906,32 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
 
         if (curPhase !== 'listening') {
           bargeInStreak = 0;
+          speechStreak = 0;
           setMicLevel(0);
           return;
         }
 
-        setMicLevel(Math.min(1, Math.max(0, (rms - 0.0015) * 28)));
+        setMicLevel(Math.min(1, Math.max(0, (rms - noiseFloor * 0.8) * 24)));
 
-        if (rms < 0.012 && !speechActive) {
-          noiseFloor = Math.max(0.002, Math.min(0.0085, noiseFloor * 0.92 + rms * 0.08));
-        }
-
-        const speechThreshold = Math.max(0.004, noiseFloor * 1.85);
+        const speechThreshold = Math.max(0.015, noiseFloor * 2.5);
 
         if (rms > speechThreshold) {
-          if (!speechActive) {
+          speechStreak += 1;
+          maxUtteranceRms = Math.max(maxUtteranceRms, rms);
+          if (!speechActive && speechStreak >= 2) {
             speechActive = true;
             speechStartedAt = now;
             speechChunks = [...preRoll, pcm];
             preRoll = [];
-          } else {
+          } else if (speechActive) {
             speechChunks.push(pcm);
+          } else {
+            preRoll.push(pcm);
+            if (preRoll.length > maxPreRollChunks) preRoll.shift();
           }
           lastSpeechAt = now;
         } else if (speechActive) {
+          speechStreak = 0;
           speechChunks.push(pcm);
           if (
             now - lastSpeechAt >= TRAILING_SILENCE_MS ||
@@ -848,18 +939,21 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
           ) {
             const captured = speechChunks;
             const durationMs = now - speechStartedAt;
+            const peakRms = maxUtteranceRms;
             speechActive = false;
             speechChunks = [];
             preRoll = [];
+            maxUtteranceRms = 0;
             setMicLevel(0);
 
-            if (durationMs >= 160 && captured.length > 0) {
+            if (durationMs >= 280 && peakRms >= 0.018 && captured.length > 0) {
               const wavB64 = encodePcmChunksToWavBase64(captured, TARGET_SAMPLE_RATE);
               const token = ++turnTokenRef.current;
               void submitVoiceWav(wavB64, token);
             }
           }
         } else {
+          speechStreak = 0;
           preRoll.push(pcm);
           if (preRoll.length > maxPreRollChunks) {
             preRoll.shift();
@@ -867,7 +961,7 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
         }
       };
     },
-    [abortInFlightTurn, setLivePhase, submitVoiceWav]
+    [abortInFlightTurn, setLivePhase, stopLivePcmPlayback, submitVoiceWav]
   );
 
   const startLiveCall = useCallback(async () => {
@@ -888,7 +982,11 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
     let outCtx: AudioContext | null = null;
     if (AudioCtx) {
       try {
-        outCtx = new AudioCtx({ sampleRate: OUTPUT_SAMPLE_RATE });
+        try {
+          outCtx = new AudioCtx({ sampleRate: OUTPUT_SAMPLE_RATE });
+        } catch {
+          outCtx = new AudioCtx();
+        }
         if (outCtx.state === 'suspended') {
           await outCtx.resume();
         }
@@ -932,8 +1030,13 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
         return;
       }
 
-      // Dedicated separate AudioContext strictly for mic capture (never shares speaker outCtx)
-      const vadCtx = new AudioCtx();
+      // Dedicated separate AudioContext strictly for mic capture (prefer 16kHz, fallback safely)
+      let vadCtx: AudioContext;
+      try {
+        vadCtx = new AudioCtx({ sampleRate: TARGET_SAMPLE_RATE });
+      } catch {
+        vadCtx = new AudioCtx();
+      }
       if (vadCtx.state === 'suspended') {
         await vadCtx.resume();
       }
@@ -942,6 +1045,8 @@ export const LampoCompanion: React.FC<LampoCompanionProps> = ({
       vadCtxRef.current = vadCtx;
       outAudioCtxRef.current = outCtx;
       nextPlayTimeRef.current = 0;
+      wsRetryCountRef.current = 0;
+      speakingEndedAtRef.current = 0;
 
       callActiveRef.current = true;
       setIsLiveCall(true);

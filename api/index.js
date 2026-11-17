@@ -924,7 +924,7 @@ Emotional rules (annoyance=${annoy}):
 - Bored/wants game -> suggest xo|math|memory|riddle in GAME.
 
 Output ONLY one line:
-- If no human speech at all: SILENT
+- If there is NO clear human speech (only silence, background hum, breathing, clicks, or static): SILENT
 - Otherwise EXACTLY: MOOD|QUIRK|DELTA|GAME|REPLY
 REPLY must be 1 super snappy spoken sentence (4-10 words max).`;
   }
@@ -1069,6 +1069,25 @@ REPLY must be 1 super snappy spoken sentence (4-10 words max).`;
       if (!audioBase64 || typeof audioBase64 !== "string" || audioBase64.length < 800) {
         return res.json({ silent: true });
       }
+      const cleanMimeCheck = String(mimeType).split(";")[0].trim().toLowerCase();
+      if (cleanMimeCheck === "audio/wav" || cleanMimeCheck === "audio/x-wav") {
+        try {
+          const rawBuf = Buffer.from(audioBase64, "base64");
+          if (rawBuf.length > 48) {
+            let sumSq = 0;
+            const sampleCount = Math.floor((rawBuf.length - 44) / 2);
+            for (let i = 44; i + 1 < rawBuf.length; i += 2) {
+              const s = rawBuf.readInt16LE(i) / 32768;
+              sumSq += s * s;
+            }
+            const wavRms = sampleCount > 0 ? Math.sqrt(sumSq / sampleCount) : 0;
+            if (wavRms < 8e-3) {
+              return res.json({ silent: true });
+            }
+          }
+        } catch {
+        }
+      }
       res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
@@ -1190,7 +1209,7 @@ REPLY must be 1 super snappy spoken sentence (4-10 words max).`;
                 ...attempt.thinking ? { thinkingConfig: { thinkingLevel: attempt.thinking } } : {}
               }
             }),
-            5500,
+            9500,
             attempt.model
           );
           for await (const chunk of stream) {
@@ -1283,7 +1302,7 @@ REPLY must be 1 super snappy spoken sentence (4-10 words max).`;
 Avoid repeating these previous riddles: ${previousQuestions.slice(-6).join(" | ")}` : "";
       const prompt = `Create 1 clever, fun, family-friendly riddle in ${targetLangName} with a single clear 1-2 word answer.${avoidList}`;
       let parsed = null;
-      for (const model of ["gemini-4-hydrogen", "gemini-3.1-flash-lite"]) {
+      for (const model of ["gemini-3.1-flash-lite", "gemini-4-hydrogen"]) {
         try {
           const response = await withTimeout(
             ai.models.generateContent({
@@ -1295,7 +1314,7 @@ Avoid repeating these previous riddles: ${previousQuestions.slice(-6).join(" | "
                 ...model === "gemini-4-hydrogen" ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {}
               }
             }),
-            9e3,
+            7e3,
             model
           );
           const raw = response.text?.trim();
@@ -1378,7 +1397,7 @@ Avoid repeating these previous riddles: ${previousQuestions.slice(-6).join(" | "
       }
       const langKey = ["uz", "ru", "en", "tr"].includes(language) ? language : "uz";
       const targetLangName = LANGUAGE_NAMES[langKey];
-      const count = track === "dtm" ? 5 : 4;
+      const count = 4;
       const ai = getAiClient();
       const systemInstruction = `You are Lampo creating an interactive post-lesson mini-test and flashcard deck.
 STRICT LANGUAGE RULE:
@@ -1397,8 +1416,8 @@ Notes excerpt: ${String(notesExcerpt).slice(0, 900)}`;
       let parsed = null;
       let lastErr = null;
       for (const attempt of [
-        { model: "gemini-4-hydrogen", thinking: ThinkingLevel.LOW, timeoutMs: 13e3 },
-        { model: "gemini-3.1-flash-lite", timeoutMs: 14e3 }
+        { model: "gemini-3.1-flash-lite", timeoutMs: 12e3 },
+        { model: "gemini-4-hydrogen", thinking: ThinkingLevel.LOW, timeoutMs: 16e3 }
       ]) {
         try {
           const response = await withTimeout(

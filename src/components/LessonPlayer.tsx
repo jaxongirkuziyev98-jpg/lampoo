@@ -385,18 +385,20 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
     };
 
     if (isMuted) {
-      const silentMs = Math.min(12000, Math.max(4500, step.narration.length * 60));
+      const text = step.narration || '';
+      const silentMs = Math.min(12000, Math.max(4500, text.length * 60));
       startTimedProgress(silentMs);
       timerRef.current = window.setTimeout(advanceToNext, silentMs);
       return () => stopAllAudio();
     }
 
     (async () => {
-      const audioPayload = await fetchTtsAudio(step.narration, activeLang);
+      const narrationText = step.narration || '';
+      const audioPayload = narrationText ? await fetchTtsAudio(narrationText, activeLang) : null;
       if (playbackRunIdRef.current !== runId) return;
 
       if (!audioPayload) {
-        scheduleFallbackTimer(step.narration);
+        scheduleFallbackTimer(narrationText);
         return;
       }
 
@@ -963,9 +965,10 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                   {steps.map((step, idx) => {
                     const isActive = idx === currentStepIndex;
                     const isCompleted = idx < currentStepIndex;
+                    const safeNotes = step.writtenNotes || '';
                     const displayedText = isActive
-                      ? step.writtenNotes.slice(0, typedChars)
-                      : step.writtenNotes;
+                      ? safeNotes.slice(0, typedChars)
+                      : safeNotes;
 
                     return (
                       <button
@@ -997,7 +1000,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                         </div>
                         <p className="text-[13px] text-slate-300 leading-relaxed">
                           {displayedText}
-                          {isActive && typedChars < step.writtenNotes.length && (
+                          {isActive && typedChars < safeNotes.length && (
                             <span className="inline-block w-1.5 h-3.5 bg-sky-400 ml-0.5 align-middle animate-pulse" />
                           )}
                         </p>
