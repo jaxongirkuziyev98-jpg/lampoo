@@ -1,0 +1,161 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+    --font-hand: 'Shantell Sans', 'Caveat', cursive, sans-serif;
+  }
+
+  html,
+  body {
+    font-family: var(--font-sans);
+    background-color: #0b0f17;
+    color: #f1f5f9;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+.font-mono-math {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.font-hand {
+  font-family: var(--font-hand);
+}
+
+/* Dark squared notebook (katak daftar) paper with subtle warm margin */
+.whiteboard-grid {
+  background-color: #0d131f;
+  background-image:
+    radial-gradient(ellipse at 50% 42%, rgba(56, 189, 248, 0.035) 0%, rgba(11, 15, 23, 0.25) 75%),
+    linear-gradient(to right, rgba(148, 163, 184, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.12) 1px, transparent 1px),
+    linear-gradient(to right, rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    120px 120px,
+    120px 120px,
+    24px 24px,
+    24px 24px;
+}
+
+/* Deep luminous sky-blue aura behind Lampo on dark canvas */
+.lampo-aura {
+  background: radial-gradient(
+    circle at center,
+    rgba(56, 189, 248, 0.22) 0%,
+    rgba(37, 99, 235, 0.11) 38%,
+    rgba(11, 15, 23, 0) 72%
+  );
+}
+
+@keyframes lampo-float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes lampo-dot-orbit {
+  0%,
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  50% {
+    transform: translate(2px, -4px) scale(1.06);
+  }
+}
+
+@keyframes lampo-shake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  15% { transform: translateX(-6px) rotate(-6deg); }
+  30% { transform: translateX(6px) rotate(6deg); }
+  45% { transform: translateX(-5px) rotate(-4deg); }
+  60% { transform: translateX(5px) rotate(4deg); }
+  75% { transform: translateX(-3px) rotate(-2deg); }
+}
+
+@keyframes lampo-bounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  30% { transform: translateY(-14px) scale(1.06, 0.96); }
+  55% { transform: translateY(2px) scale(0.96, 1.04); }
+  75% { transform: translateY(-7px) scale(1.02); }
+}
+
+@keyframes lampo-wiggle {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-10deg) scale(1.04); }
+  50% { transform: rotate(10deg) scale(1.04); }
+  75% { transform: rotate(-6deg) scale(1.02); }
+}
+
+@keyframes lampo-jump {
+  0%, 100% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-18px) scale(1.08); }
+  70% { transform: translateY(0) scale(0.94, 1.05); }
+}
+
+@keyframes lampo-laugh {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
+  20% { transform: translateY(-6px) rotate(-4deg) scale(1.04, 0.97); }
+  40% { transform: translateY(1px) rotate(4deg) scale(0.98, 1.04); }
+  60% { transform: translateY(-7px) rotate(-3deg) scale(1.05, 0.96); }
+  80% { transform: translateY(0px) rotate(3deg) scale(0.99, 1.02); }
+}
+
+@keyframes lampo-pout {
+  0%, 100% { transform: translateY(2px) rotate(-5deg) scale(0.97); }
+  50% { transform: translateY(5px) rotate(-8deg) scale(0.95); }
+}
+
+.animate-lampo-float {
+  animation: lampo-float 3.4s ease-in-out infinite;
+}
+
+.animate-lampo-dot {
+  animation: lampo-dot-orbit 2.6s ease-in-out infinite;
+}
+
+.animate-lampo-shake {
+  animation: lampo-shake 0.55s ease-in-out;
+}
+
+.animate-lampo-bounce {
+  animation: lampo-bounce 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-lampo-wiggle {
+  animation: lampo-wiggle 0.55s ease-in-out;
+}
+
+.animate-lampo-jump {
+  animation: lampo-jump 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-lampo-laugh {
+  animation: lampo-laugh 0.55s ease-in-out infinite;
+}
+
+.animate-lampo-pout {
+  animation: lampo-pout 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-lampo-float,
+  .animate-lampo-dot,
+  .animate-lampo-shake,
+  .animate-lampo-bounce,
+  .animate-lampo-wiggle,
+  .animate-lampo-jump,
+  .animate-lampo-laugh,
+  .animate-lampo-pout {
+    animation: none;
+  }
+}

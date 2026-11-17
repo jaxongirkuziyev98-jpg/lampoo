@@ -1,0 +1,6 @@
+{
+  "name": "Lampo",
+  "description": "Chizib, ovoz chiqarib va yozma tushuntiradigan shaxsiy ustozingiz.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
